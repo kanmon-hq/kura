@@ -99,7 +99,14 @@ func (u *chatUseCase) HandleChatCompletion(
 
 	// ルーターによる候補エンドポイントの解決
 	if u.router != nil {
-		candidates := u.router.ResolveCandidates(req.Model)
+		dataResidency := ""
+		if tenantCtx != nil && tenantCtx.DataResidency != "" {
+			dataResidency = tenantCtx.DataResidency
+		} else if r != nil {
+			dataResidency = r.Header.Get("X-Data-Residency")
+		}
+
+		candidates := u.router.ResolveCandidates(req.Model, dataResidency)
 		if len(candidates) > 0 {
 			u.proxy.ServeForwardCandidates(
 				w,

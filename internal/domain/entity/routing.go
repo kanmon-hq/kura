@@ -12,15 +12,16 @@ import (
 
 // EndpointConfig は個別 LLM エンドポイントの設定
 type EndpointConfig struct {
-	Name       string `json:"name,omitempty"`
-	Provider   string `json:"provider"` // "azure" | "bedrock" | "gemini" | "openai"
-	URL        string `json:"url,omitempty"`
-	Key        string `json:"key,omitempty"` // 直接値または "env:ENV_NAME"
-	Region     string `json:"region,omitempty"`
-	APIVersion string `json:"api_version,omitempty"`
-	Deployment string `json:"deployment,omitempty"`
-	Priority   int    `json:"priority,omitempty"` // 1 が最優先
-	Weight     int    `json:"weight,omitempty"`   // 同一優先度時の重み
+	Name          string `json:"name,omitempty"`
+	Provider      string `json:"provider"` // "azure" | "bedrock" | "gemini" | "openai"
+	URL           string `json:"url,omitempty"`
+	Key           string `json:"key,omitempty"` // 直接値または "env:ENV_NAME"
+	Region        string `json:"region,omitempty"`
+	DataResidency string `json:"data_residency,omitempty"` // "japan" | "global"
+	APIVersion    string `json:"api_version,omitempty"`
+	Deployment    string `json:"deployment,omitempty"`
+	Priority      int    `json:"priority,omitempty"` // 1 が最優先
+	Weight        int    `json:"weight,omitempty"`   // 同一優先度時の重み
 }
 
 // GetResolvedKey は "env:NAME" 形式の環境変数を展開した API キーを返す
@@ -123,27 +124,90 @@ func (r *Router) GetConfig() *RoutingConfig {
 	return r.config
 }
 
-// ResolveCandidates はモデル名から候補エンドポイントのリストを優先度順・冷却状態順に解決する
-func (r *Router) ResolveCandidates(model string) []EndpointConfig {
+// ResolveCandidates はモデル名およびデータレジデンシー要件から候補エンドポイントを優先度順・冷却状態順に解決する
+func (r *Router) ResolveCandidates(model string, dataResidency ...string) []EndpointConfig {
 	normalizedModel := strings.TrimSpace(strings.ToLower(model))
+	residency := ""
+	if len(dataResidency) > 0 {
+		residency = strings.ToLower(strings.TrimSpace(dataResidency[0]))
+	}
+
+	var candidates []EndpointConfig
 
 	// 1. 明示プレフィックス判定 (azure/..., bedrock/..., gemini/...)
 	if strings.HasPrefix(normalizedModel, "azure/") {
 		cleanModel := strings.TrimPrefix(normalizedModel, "azure/")
-		return r.filterAndSort(r.resolveByHierarchy(cleanModel), "azure")
-	}
-	if strings.HasPrefix(normalizedModel, "bedrock/") {
+		candidates = r.filterByProvider(r.resolveByHierarchy(cleanModel), "azure")
+	} else if strings.HasPrefix(normalizedModel, "bedrock/") {
 		cleanModel := strings.TrimPrefix(normalizedModel, "bedrock/")
-		return r.filterAndSort(r.resolveByHierarchy(cleanModel), "bedrock")
-	}
-	if strings.HasPrefix(normalizedModel, "gemini/") {
+		candidates = r.filterByProvider(r.resolveByHierarchy(cleanModel), "bedrock")
+	} else if strings.HasPrefix(normalizedModel, "gemini/") {
 		cleanModel := strings.TrimPrefix(normalizedModel, "gemini/")
-		return r.filterAndSort(r.resolveByHierarchy(cleanModel), "gemini")
+		candidates = r.filterByProvider(r.resolveByHierarchy(cleanModel), "gemini")
+	} else {
+		// 2. 階層解決 (Overrides -> Prefixes -> Default)
+		candidates = r.resolveByHierarchy(normalizedModel)
 	}
 
-	// 2. 階層解決 (Overrides -> Prefixes -> Default)
-	candidates := r.resolveByHierarchy(normalizedModel)
+	// 3. データレジデンシーによる厳格なフィルタリング
+	candidates = r.filterByResidency(candidates, residency)
+
 	return r.sortCandidates(candidates)
+}
+
+func (r *Router) filterByResidency(endpoints []EndpointConfig, residency string) []EndpointConfig {
+	if len(endpoints) == 0 {
+		return endpoints
+	}
+
+	if residency == "japan" {
+		// 日本国内限定要件: 日本リージョンのエンドポイントのみを抽出（海外への漏洩防止）
+		var filtered []EndpointConfig
+		for _, ep := range endpoints {
+			if isJapanEndpoint(&ep) {
+				filtered = append(filtered, ep)
+			}
+		}
+		return filtered
+	}
+
+	// 通常（指定なし）: 日本専用としてマークされたエンドポイントと通常エンドポイントが混在する場合、
+	// グローバル利用可能なエンドポイントを優先（日本専用は通常リクエストで濫用させない）
+	return endpoints
+}
+
+func isJapanEndpoint(ep *EndpointConfig) bool {
+	if strings.EqualFold(ep.DataResidency, "japan") {
+		return true
+	}
+	lowerReg := strings.ToLower(ep.Region)
+	if strings.Contains(lowerReg, "japan") || strings.Contains(lowerReg, "tokyo") || strings.Contains(lowerReg, "osaka") {
+		return true
+	}
+	lowerURL := strings.ToLower(ep.URL)
+	if strings.Contains(lowerURL, "japan") || strings.Contains(lowerURL, "tokyo") {
+		return true
+	}
+	lowerName := strings.ToLower(ep.Name)
+	return strings.Contains(lowerName, "japan") || strings.Contains(lowerName, "tokyo")
+}
+
+func (r *Router) filterByProvider(endpoints []EndpointConfig, provider string) []EndpointConfig {
+	var filtered []EndpointConfig
+	for _, ep := range endpoints {
+		if strings.EqualFold(ep.Provider, provider) {
+			filtered = append(filtered, ep)
+		}
+	}
+	if len(filtered) == 0 {
+		// 指定プロバイダのエンドポイントが階層内で見つからない場合は Default から同一プロバイダを抽出
+		for _, ep := range r.config.Default {
+			if strings.EqualFold(ep.Provider, provider) {
+				filtered = append(filtered, ep)
+			}
+		}
+	}
+	return filtered
 }
 
 func (r *Router) resolveByHierarchy(model string) []EndpointConfig {
@@ -172,24 +236,6 @@ func (r *Router) resolveByHierarchy(model string) []EndpointConfig {
 
 	// 2-3. Default 共通プール
 	return r.config.Default
-}
-
-func (r *Router) filterAndSort(endpoints []EndpointConfig, provider string) []EndpointConfig {
-	var filtered []EndpointConfig
-	for _, ep := range endpoints {
-		if strings.EqualFold(ep.Provider, provider) {
-			filtered = append(filtered, ep)
-		}
-	}
-	if len(filtered) == 0 {
-		// 指定プロバイダのエンドポイントが階層内で見つからない場合は Default から同一プロバイダを抽出
-		for _, ep := range r.config.Default {
-			if strings.EqualFold(ep.Provider, provider) {
-				filtered = append(filtered, ep)
-			}
-		}
-	}
-	return r.sortCandidates(filtered)
 }
 
 func (r *Router) sortCandidates(endpoints []EndpointConfig) []EndpointConfig {

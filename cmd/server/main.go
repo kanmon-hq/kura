@@ -99,12 +99,23 @@ func main() {
 	// 設定ファイルに default がない場合、環境変数からフォールバックプールを構築
 	if len(routingCfg.Default) == 0 && openAIAdapter.IsEnabled() {
 		routingCfg.Default = append(routingCfg.Default, entity.EndpointConfig{
-			Name:     "azure-default",
-			Provider: "azure",
-			URL:      cfg.AzureOpenAIEndpoint,
-			Key:      cfg.AzureOpenAIAPIKey,
-			Priority: 1,
+			Name:          "azure-default",
+			Provider:      "azure",
+			URL:           cfg.AzureOpenAIEndpoint,
+			Key:           cfg.AzureOpenAIAPIKey,
+			DataResidency: "global",
+			Priority:      1,
 		})
+		if cfg.AzureOpenAIEndpointJapan != "" {
+			routingCfg.Default = append(routingCfg.Default, entity.EndpointConfig{
+				Name:          "azure-japaneast",
+				Provider:      "azure",
+				URL:           cfg.AzureOpenAIEndpointJapan,
+				Key:           cfg.AzureOpenAIAPIKey,
+				DataResidency: "japan",
+				Priority:      1,
+			})
+		}
 	}
 	if routingCfg.Prefixes == nil {
 		routingCfg.Prefixes = make(map[string][]entity.EndpointConfig)

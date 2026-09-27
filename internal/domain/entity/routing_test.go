@@ -79,6 +79,25 @@ func TestRouter_ResolveCandidates(t *testing.T) {
 	if cands[0].Name != "def-azure-1" || cands[1].Name != "def-azure-2" {
 		t.Errorf("expected def-azure-1 first due to cooldown of def-azure-2, got %v, %v", cands[0].Name, cands[1].Name)
 	}
+
+	// 6. データレジデンシー (X-Data-Residency: japan) の絞り込みテスト
+	cfgResidency := &RoutingConfig{
+		Default: []EndpointConfig{
+			{Name: "global-1", Provider: "azure", URL: "https://res-global1.openai.azure.com", DataResidency: "global", Priority: 1},
+			{Name: "japan-1", Provider: "azure", URL: "https://res-japan1.openai.azure.com", DataResidency: "japan", Priority: 1},
+			{Name: "japan-2", Provider: "azure", URL: "https://res-japan2.openai.azure.com", Region: "japaneast", Priority: 2},
+		},
+	}
+	routerResidency := NewRouter(cfgResidency, NewCircuitBreaker())
+
+	// japan 指定 -> japan-1, japan-2 のみ抽出され、global-1 は完全に除外される
+	japanCands := routerResidency.ResolveCandidates("gpt-4o", "japan")
+	if len(japanCands) != 2 {
+		t.Fatalf("expected 2 japan candidates, got %d", len(japanCands))
+	}
+	if japanCands[0].Name != "japan-1" || japanCands[1].Name != "japan-2" {
+		t.Errorf("unexpected japan candidates order: %v, %v", japanCands[0].Name, japanCands[1].Name)
+	}
 }
 
 func TestEndpointConfig_GetResolvedKey(t *testing.T) {

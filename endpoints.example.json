@@ -6,6 +6,7 @@
       "provider": "azure",
       "url": "https://res1.openai.azure.com",
       "key": "env:AZURE_OPENAI_API_KEY_1",
+      "data_residency": "global",
       "priority": 1
     },
     {
@@ -13,7 +14,17 @@
       "provider": "azure",
       "url": "https://res2.openai.azure.com",
       "key": "env:AZURE_OPENAI_API_KEY_2",
+      "data_residency": "global",
       "priority": 2
+    },
+    {
+      "name": "foundry-japaneast",
+      "provider": "azure",
+      "url": "https://res-japaneast.openai.azure.com",
+      "key": "env:AZURE_OPENAI_API_KEY_JAPAN",
+      "data_residency": "japan",
+      "region": "japaneast",
+      "priority": 1
     }
   ],
   "prefixes": {
