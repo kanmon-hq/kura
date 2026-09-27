@@ -138,7 +138,7 @@ func (p *LLMProxy) handleStreaming(
 	resp, err := p.transport.RoundTrip(targetReq)
 	if err != nil {
 		if errors.Is(streamCtx.Err(), context.Canceled) {
-			log.Printf("[INFO] Client canceled streaming before response headers received. RequestID: %s", requestID)
+			log.Printf("[INFO] Client canceled streaming before response headers received")
 			return
 		}
 		log.Printf("[ERROR] Vendor connection error (RequestID: %s)", requestID)
@@ -231,12 +231,10 @@ func (p *LLMProxy) handleStreaming(
 	}
 
 	if clientDisconnected {
-		log.Printf("[INFO] Client disconnected during streaming. Upstream canceled -> RequestID: %s, Duration: %dms\n",
-			requestID, totalDuration.Milliseconds())
+		log.Printf("[INFO] Client disconnected during streaming. Upstream canceled -> Duration: %dms\n", totalDuration.Milliseconds())
 	} else {
 		// オブザーバビリティ ログ出力
-		log.Printf("[OBSERVABILITY] Streaming Finished -> RequestID: %s, Total: %dms, Vendor: %dms, Gateway: %dms, TTFT: %dms\n",
-			requestID, totalDuration.Milliseconds(), vendorDuration.Milliseconds(), gatewayLatencyMs, ttftMs)
+		log.Printf("[OBSERVABILITY] Streaming Finished -> Total: %dms, Vendor: %dms, Gateway: %dms, TTFT: %dms\n", totalDuration.Milliseconds(), vendorDuration.Milliseconds(), gatewayLatencyMs, ttftMs)
 	}
 
 	var promptTokens, completionTokens, totalTokens int64
@@ -245,7 +243,7 @@ func (p *LLMProxy) handleStreaming(
 		completionTokens = int64(finalUsage.CompletionTokens)
 		totalTokens = int64(finalUsage.TotalTokens)
 	} else if !clientDisconnected {
-		log.Printf("[WARN] No usage information returned from vendor for streaming request %s", requestID)
+		log.Printf("[WARN] No usage information returned from vendor for streaming request")
 	}
 
 	// クレジット・費用計算 & 集計（途中で切断されてもトークン情報が取れていれば計上）
@@ -292,7 +290,7 @@ func (p *LLMProxy) handleNonStreaming(
 	resp, err := p.transport.RoundTrip(targetReq)
 	if err != nil {
 		if errors.Is(reqCtx.Err(), context.Canceled) {
-			log.Printf("[INFO] Client canceled non-streaming request before response headers received. RequestID: %s", requestID)
+			log.Printf("[INFO] Client canceled non-streaming request before response headers received")
 			return
 		}
 		log.Printf("[ERROR] Vendor connection error (RequestID: %s)", requestID)
@@ -315,7 +313,7 @@ func (p *LLMProxy) handleNonStreaming(
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		if errors.Is(reqCtx.Err(), context.Canceled) {
-			log.Printf("[INFO] Client canceled non-streaming request while reading body. RequestID: %s", requestID)
+			log.Printf("[INFO] Client canceled non-streaming request while reading body")
 			return
 		}
 		sendError(w, http.StatusInternalServerError, entity.ErrorTypeInternalError, "Failed to read vendor response", "")
@@ -341,7 +339,7 @@ func (p *LLMProxy) handleNonStreaming(
 		completionTokens = int64(usage.CompletionTokens)
 		totalTokens = int64(usage.TotalTokens)
 	} else {
-		log.Printf("[WARN] No usage information returned from vendor for non-streaming request %s", requestID)
+		log.Printf("[WARN] No usage information returned from vendor for non-streaming request")
 	}
 
 	// クレジット・費用計算
