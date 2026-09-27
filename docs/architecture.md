@@ -78,11 +78,12 @@ kura/
 │   │   ├── adapter/                # Microsoft Foundry / Bedrock (OpenAI 互換) アダプター
 │   │   ├── cache/                  # キャッシュ層デコレーター (ネガティブキャッシュ等)
 │   │   ├── config/                 # 環境変数ローダー (config.go)
+│   │   ├── cosmosdb/               # Azure Cosmos DB ストア実装 (NoSQL API)
 │   │   ├── dynamodb/               # DynamoDB ストア実装 (Single Table Design)
+│   │   ├── firestore/              # Google Cloud Firestore ストア実装
 │   │   ├── logger/                 # 非同期チャネル構造化コンソールロガー
 │   │   ├── metrics/                # Prometheus メトリクスコレクター
 │   │   ├── notifier/               # アプリ内通知・ログ出力アダプター
-│   │   ├── postgres/               # PostgreSQL ストア実装 (pgx 接続プール)
 │   │   ├── proxy/                  # LLM リバースプロキシ・SSE・Usage インターセプト
 │   │   ├── scheduler/              # 自律 Cron & 補正スケジューラー
 │   │   ├── sqlite/                 # SQLite ストア実装 (純 Go / CGO 不要)
@@ -129,8 +130,8 @@ kura/
 ## 4. ストアアーキテクチャ & キャッシュ層
 
 ### 4.1 コスト管理ストア (CostStore) と 集計結果ストア (UsageStore) の分離
-- **CostStore（ホットパス）**: 高速な残枠確認（ソフトリミット）とアトミックなコスト加算に特化（SQLite, DynamoDB, Valkey/Redis）。
-- **UsageStore（永続・集計）**: 時系列の利用実績記録、月次レポート集計、分散ロック、通知永続化を担当（SQLite, DynamoDB, PostgreSQL）。
+- **CostStore（ホットパス）**: 高速な残枠確認（ソフトリミット）とアトミックなコスト加算に特化（SQLite, DynamoDB, Cosmos DB, Firestore, Valkey/Redis）。
+- **UsageStore（永続・集計）**: 時系列の利用実績記録、月次レポート集計、分散ロック、通知永続化を担当（SQLite, DynamoDB, Cosmos DB, Firestore）。
 
 ### 4.2 キャッシュ層（デコレーター）
 マルチコンテナ運用時、Hot パスにおけるストアへの負荷を最小化するため、キャッシュデコレーターを内包している：

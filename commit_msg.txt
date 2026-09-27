@@ -1,6 +1,0 @@
-⚡ Bolt: optimize vendor error parsing in reverse proxy
-
-* 💡 What: Replaced `map[string]any` full JSON unmarshaling with a fast anonymous struct in `handleVendorErrorWithBody`.
-* 🎯 Why: To prevent expensive memory allocations and recursive parsing when unmarshaling vendor error responses, especially when the vendor payload contains large undocumented extra fields (e.g. metadata).
-* 📊 Impact: Micro-benchmarks show ~60%+ reduction in allocation and parsing overhead for error payloads with extra keys.
-* 🔬 Measurement: Observe CPU and Memory allocation profiles for `handleVendorErrorWithBody` in high-throughput error scenarios. Tests in `internal/infrastructure/proxy` pass successfully.

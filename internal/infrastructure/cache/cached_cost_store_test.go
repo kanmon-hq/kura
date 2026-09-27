@@ -215,3 +215,39 @@ func TestCachedCostStore_Concurrency(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestCachedCostStore_ServiceOperationsAndPing(t *testing.T) {
+	memStore := memory.NewMemoryStore()
+	ctx := context.Background()
+	m := metrics.NewMetrics()
+	opts := CacheOptions{
+		Enabled:   true,
+		ConfigTTL: 500 * time.Millisecond,
+	}
+	cached := NewCachedCostStore(memStore, m, opts)
+	defer cached.Close()
+
+	// SetServiceLimit & GetServiceConfig
+	if err := cached.SetServiceLimit(ctx, "svc-all", 500.0, "payg"); err != nil {
+		t.Fatalf("failed to set service limit: %v", err)
+	}
+	cfg, err := cached.GetServiceConfig(ctx, "svc-all")
+	if err != nil || cfg == nil || cfg.CostLimit != 500.0 {
+		t.Fatalf("unexpected service config: %v", cfg)
+	}
+
+	// ServiceCost & ResetCost
+	if err := cached.ResetCost(ctx, "svc-all", "tenant-1", "2026-09", 10.0, 1000); err != nil {
+		t.Fatalf("failed to reset cost: %v", err)
+	}
+	cost, tokens, err := cached.GetServiceCost(ctx, "svc-all", "2026-09")
+	if err != nil {
+		t.Fatalf("failed to get service cost: %v", err)
+	}
+	_ = cost
+	_ = tokens
+
+	if err := cached.Ping(ctx); err != nil {
+		t.Fatalf("failed to ping cached cost store: %v", err)
+	}
+}

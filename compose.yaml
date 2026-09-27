@@ -13,6 +13,13 @@ services:
       COST_STORE: ${COST_STORE:-sqlite}
       USAGE_STORE: ${USAGE_STORE:-sqlite}
       SQLITE_PATH: ${SQLITE_PATH:-/data/kura.db}
+      COSMOSDB_ENDPOINT: ${COSMOSDB_ENDPOINT:-}
+      COSMOSDB_KEY: ${COSMOSDB_KEY:-}
+      COSMOSDB_DATABASE: ${COSMOSDB_DATABASE:-kura}
+      COSMOSDB_CONTAINER: ${COSMOSDB_CONTAINER:-usage}
+      FIRESTORE_PROJECT_ID: ${FIRESTORE_PROJECT_ID:-local-kura-project}
+      FIRESTORE_DATABASE: ${FIRESTORE_DATABASE:-(default)}
+      FIRESTORE_EMULATOR_HOST: ${FIRESTORE_EMULATOR_HOST:-}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       DEFAULT_TOKEN_QUOTA: 1000000
       MICROSOFT_FOUNDRY_ENDPOINT: ${MICROSOFT_FOUNDRY_ENDPOINT:-http://mock-llm:8090}
@@ -115,24 +122,21 @@ services:
       timeout: 3s
       retries: 5
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: kura-postgres
+  firestore-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    container_name: kura-firestore-emulator
     ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: kura
-      POSTGRES_USER: kura
-      POSTGRES_PASSWORD: kurapassword
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - "8085:8085"
+    command: gcloud beta emulators firestore start --host-port=0.0.0.0:8085
     profiles:
-      - postgres
+      - firestore
       - all
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U kura -d kura" ]
+      test: [ "CMD-SHELL", "curl -s http://localhost:8085/ || exit 0" ]
       interval: 5s
       timeout: 3s
+      retries: 5
+
   prometheus:
     image: prom/prometheus:latest
     container_name: kura-prometheus
@@ -167,5 +171,4 @@ services:
 
 volumes:
   kura-data:
-  postgres-data:
 

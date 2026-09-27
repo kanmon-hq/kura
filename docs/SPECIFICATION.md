@@ -38,7 +38,7 @@
 
 5. **[スケジューラー & オブザーバビリティ](scheduler-and-observability.md)**
    - 内蔵バッチスケジューラー (`CronScheduler`)
-   - 分散ロック制御 (DynamoDB / PostgreSQL / SQLite)
+   - 分散ロック制御 (DynamoDB / Cosmos DB / Firestore / SQLite)
    - 月次レポートバッチ、予算残量低下アラート、残高補正ジョブ
    - 非同期構造化ロガー (`UsageLogEvent`) & 分散トレース伝播
    - Prometheus メトリクス定義

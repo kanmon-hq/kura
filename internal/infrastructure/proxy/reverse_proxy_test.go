@@ -181,3 +181,132 @@ func TestNonStreamingClientDisconnect(t *testing.T) {
 		t.Error("expected upstream request to be canceled when client disconnected in non-streaming mode")
 	}
 }
+
+type fullMockAdapter struct {
+	targetURL string
+}
+
+func (m *fullMockAdapter) Provider() service.ProviderType { return service.ProviderOpenAI }
+func (m *fullMockAdapter) IsEnabled() bool                { return true }
+func (m *fullMockAdapter) PrepareRequest(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request) (*http.Request, error) {
+	return http.NewRequestWithContext(ctx, http.MethodPost, m.targetURL, nil)
+}
+func (m *fullMockAdapter) ExtractUsageFromResponse(body []byte) (*entity.UsageInfo, error) {
+	return &entity.UsageInfo{
+		PromptTokens:     10,
+		CompletionTokens: 20,
+		TotalTokens:      30,
+	}, nil
+}
+func (m *fullMockAdapter) ExtractUsageFromChunk(chunk []byte) (*entity.UsageInfo, error) {
+	if string(chunk) == "[DONE]" {
+		return &entity.UsageInfo{
+			PromptTokens:     10,
+			CompletionTokens: 20,
+			TotalTokens:      30,
+		}, nil
+	}
+	return nil, nil
+}
+func (m *fullMockAdapter) NormalizeResponse(statusCode int, body []byte) ([]byte, error) {
+	return body, nil
+}
+func (m *fullMockAdapter) NormalizeSSEChunk(chunk []byte) ([][]byte, error) {
+	return [][]byte{chunk}, nil
+}
+
+func TestServeForward_NonStreaming_Success(t *testing.T) {
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-123","choices":[{"message":{"role":"assistant","content":"hello"}}]}`))
+	}))
+	defer upstreamServer.Close()
+
+	llmProxy := proxy.NewLLMProxy(nil, nil, nil, nil)
+	adapter := &fullMockAdapter{targetURL: upstreamServer.URL}
+
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	rec := httptest.NewRecorder()
+
+	tenantCtx := &entity.TenantContext{
+		ServiceID: "test-service",
+		TenantID:  "test-tenant",
+	}
+	reqObj := &entity.ChatCompletionRequest{
+		Model:  "gpt-4o",
+		Stream: false,
+	}
+
+	llmProxy.ServeForward(rec, clientReq, tenantCtx, reqObj, adapter)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK, got %d", rec.Code)
+	}
+}
+
+func TestServeForward_Streaming_Success(t *testing.T) {
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		_, _ = fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer upstreamServer.Close()
+
+	llmProxy := proxy.NewLLMProxy(nil, nil, nil, nil)
+	adapter := &fullMockAdapter{targetURL: upstreamServer.URL}
+
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	rec := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+
+	tenantCtx2 := &entity.TenantContext{
+		ServiceID: "test-service",
+		TenantID:  "test-tenant",
+	}
+	reqObj := &entity.ChatCompletionRequest{
+		Model:  "gpt-4o",
+		Stream: true,
+	}
+
+	llmProxy.ServeForward(rec, clientReq, tenantCtx2, reqObj, adapter)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK, got %d", rec.Code)
+	}
+}
+
+func TestServeForward_UpstreamError(t *testing.T) {
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"invalid model"}}`))
+	}))
+	defer upstreamServer.Close()
+
+	llmProxy := proxy.NewLLMProxy(nil, nil, nil, nil)
+	adapter := &fullMockAdapter{targetURL: upstreamServer.URL}
+
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	rec := httptest.NewRecorder()
+
+	reqObj := &entity.ChatCompletionRequest{
+		Model:  "gpt-4o",
+		Stream: false,
+	}
+
+	llmProxy.ServeForward(rec, clientReq, nil, reqObj, adapter)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request, got %d", rec.Code)
+	}
+}

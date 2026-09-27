@@ -20,7 +20,7 @@ Kura は、外部の AWS EventBridge や AWS Lambda を必要とせず、Go サ�
 ※ 管理用 API（`POST /v1/admin/jobs/run`, `POST /v1/admin/jobs/reconcile`）から手動で即時トリガー実行することも可能。
 
 ### 2.2 分散ロックによる二重実行防止
-マルチコンテナ構成（Auto Scaling）時でも、同一バッチの二重実行を防止するため、集計結果ストア（DynamoDB, PostgreSQL, SQLite）を用いた分散ロック制御を行う。
+マルチコンテナ構成（Auto Scaling）時でも、同一バッチの二重実行を防止するため、集計結果ストア（DynamoDB, Cosmos DB, Firestore, SQLite）を用いた分散ロック制御を行う。
 
 1. 実行タイミングで一意のロックキー（例: `LOCK#monthly_report#2026-09`）を作成。
 2. ストアへ条件付き書き込みまたはトランザクションロックを試行。

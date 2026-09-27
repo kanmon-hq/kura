@@ -67,3 +67,33 @@ func TestValidateGatewayAuth_ValidPreviousSecret(t *testing.T) {
 		t.Fatalf("expected nil error for valid previous secret, got %v", err)
 	}
 }
+
+func TestLoad_EnvironmentVariables(t *testing.T) {
+	t.Setenv("PORT", "9090")
+	t.Setenv("AWS_REGION", "us-west-2")
+	t.Setenv("DEFAULT_TOKEN_QUOTA", "2000000")
+	t.Setenv("CACHE_ENABLED", "true")
+	t.Setenv("DOCS_PATH", "none")
+	t.Setenv("OPENAPI_PATH", "/custom-openapi")
+	t.Setenv("ENFORCE_TOLLGATE_AUTH", "true")
+
+	cfg := config.Load()
+	if cfg.Port != "9090" {
+		t.Errorf("expected Port 9090, got %s", cfg.Port)
+	}
+	if cfg.AWSRegion != "us-west-2" {
+		t.Errorf("expected AWSRegion us-west-2, got %s", cfg.AWSRegion)
+	}
+	if cfg.DefaultTokenQuota != 2000000 {
+		t.Errorf("expected DefaultTokenQuota 2000000, got %d", cfg.DefaultTokenQuota)
+	}
+	if cfg.DocsPath != "" {
+		t.Errorf("expected empty DocsPath when set to 'none', got %s", cfg.DocsPath)
+	}
+	if cfg.OpenAPIPath != "/custom-openapi" {
+		t.Errorf("expected OpenAPIPath /custom-openapi, got %s", cfg.OpenAPIPath)
+	}
+	if !cfg.EnforceTollgateAuth {
+		t.Errorf("expected EnforceTollgateAuth true")
+	}
+}

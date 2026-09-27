@@ -94,3 +94,55 @@ func TestInitializeStores_InvalidCostStore(t *testing.T) {
 		t.Fatalf("expected error for invalid COST_STORE, got nil")
 	}
 }
+
+func TestInitializeStores_CosmosDB_MissingConfig(t *testing.T) {
+	cfg := &config.Config{
+		CostStoreType:  "cosmosdb",
+		UsageStoreType: "cosmosdb",
+	}
+
+	_, err := store.InitializeStores(cfg)
+	if err == nil {
+		t.Fatalf("expected error when Cosmos DB credentials are missing, got nil")
+	}
+}
+
+func TestInitializeStores_DynamoDB_Success(t *testing.T) {
+	cfg := &config.Config{
+		CostStoreType:     "dynamodb",
+		UsageStoreType:    "dynamodb",
+		DynamoDBTableName: "KuraUsage",
+		AWSRegion:         "ap-northeast-1",
+	}
+
+	bundle, err := store.InitializeStores(cfg)
+	if err != nil {
+		t.Fatalf("expected success with dynamodb fallback, got %v", err)
+	}
+	if bundle.CostStore == nil || bundle.UsageStore == nil {
+		t.Fatalf("expected non-nil stores")
+	}
+}
+
+func TestInitializeStores_Valkey_Success(t *testing.T) {
+	dir, err := os.MkdirTemp("", "kura_store_factory_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	cfg := &config.Config{
+		CostStoreType:  "valkey",
+		UsageStoreType: "sqlite",
+		SQLitePath:     filepath.Join(dir, "kura.db"),
+		ValkeyURL:      "redis://127.0.0.1:6379/0",
+	}
+
+	bundle, err := store.InitializeStores(cfg)
+	if err != nil {
+		t.Fatalf("expected success with valkey cost store, got %v", err)
+	}
+	if bundle.CostStore == nil || bundle.UsageStore == nil {
+		t.Fatalf("expected non-nil stores")
+	}
+}

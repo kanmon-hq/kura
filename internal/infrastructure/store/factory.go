@@ -1,14 +1,16 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
 
 	"github.com/northfieldzz/kura/internal/domain/repository"
 	"github.com/northfieldzz/kura/internal/infrastructure/config"
+	"github.com/northfieldzz/kura/internal/infrastructure/cosmosdb"
 	"github.com/northfieldzz/kura/internal/infrastructure/dynamodb"
-	"github.com/northfieldzz/kura/internal/infrastructure/postgres"
+	"github.com/northfieldzz/kura/internal/infrastructure/firestore"
 	"github.com/northfieldzz/kura/internal/infrastructure/sqlite"
 	"github.com/northfieldzz/kura/internal/infrastructure/valkey"
 )
@@ -33,7 +35,7 @@ func InitializeStores(cfg *config.Config) (*StoreBundle, error) {
 
 	// Phase B: memory の指定はエラーで拒絶し、sqlite を促す (Fail-Fast)
 	if costStoreType == "memory" || usageStoreType == "memory" {
-		return nil, fmt.Errorf("storage type 'memory' is no longer supported for production; use 'sqlite' (or DynamoDB / PostgreSQL / Valkey) instead")
+		return nil, fmt.Errorf("storage type 'memory' is no longer supported for production; use 'sqlite' (or DynamoDB / Cosmos DB / Firestore / Valkey) instead")
 	}
 
 	// 組み合わせの検証
@@ -45,9 +47,6 @@ func InitializeStores(cfg *config.Config) (*StoreBundle, error) {
 	// 警告ログ
 	if costStoreType == "sqlite" || usageStoreType == "sqlite" {
 		log.Printf("[WARN] [STORAGE] SQLite store is configured (%s). SQLite is strictly designed for single-instance deployments. Do NOT use SQLite across multiple containers.", cfg.SQLitePath)
-	}
-	if costStoreType == "postgres" || costStoreType == "postgresql" {
-		log.Printf("[WARN] [STORAGE] CostStore is configured as PostgreSQL. This is NOT recommended for high-throughput hot path due to row-level lock contention and latency.")
 	}
 
 	bundle := &StoreBundle{}
@@ -78,17 +77,26 @@ func InitializeStores(cfg *config.Config) (*StoreBundle, error) {
 		if costStoreType == "dynamodb" {
 			bundle.CostStore = dynamoRepo
 		}
-	case "postgres", "postgresql":
-		pgStore, err := postgres.NewPostgresStore(cfg.PostgresDSN)
+	case "cosmosdb", "cosmos":
+		cosmosStore, err := cosmosdb.NewCosmosStore(cfg.CosmosDBEndpoint, cfg.CosmosDBKey, cfg.CosmosDBConnectionString, cfg.CosmosDBDatabase, cfg.CosmosDBContainer)
 		if err != nil {
-			return nil, fmt.Errorf("failed to initialize PostgreSQL UsageStore: %w", err)
+			return nil, fmt.Errorf("failed to initialize Cosmos DB UsageStore: %w", err)
 		}
-		bundle.UsageStore = pgStore
-		if costStoreType == "postgres" || costStoreType == "postgresql" {
-			bundle.CostStore = pgStore
+		bundle.UsageStore = cosmosStore
+		if costStoreType == "cosmosdb" || costStoreType == "cosmos" {
+			bundle.CostStore = cosmosStore
+		}
+	case "firestore", "datastore":
+		fsStore, err := firestore.NewFirestoreStore(context.Background(), cfg.FirestoreProjectID, cfg.FirestoreDatabase)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize Firestore UsageStore: %w", err)
+		}
+		bundle.UsageStore = fsStore
+		if costStoreType == "firestore" || costStoreType == "datastore" {
+			bundle.CostStore = fsStore
 		}
 	default:
-		return nil, fmt.Errorf("unknown USAGE_STORE type '%s'. Supported: sqlite, dynamodb, postgres", usageStoreType)
+		return nil, fmt.Errorf("unknown USAGE_STORE type '%s'. Supported: sqlite, dynamodb, cosmosdb, firestore", usageStoreType)
 	}
 
 	// CostStore の初期化 (まだ未設定の場合)
@@ -102,6 +110,18 @@ func InitializeStores(cfg *config.Config) (*StoreBundle, error) {
 			bundle.CostStore = sqStore
 		case "dynamodb":
 			bundle.CostStore = dynamodb.NewQuotaRepository(cfg.DynamoDBEndpoint, cfg.AWSRegion, cfg.DynamoDBTableName, cfg.DefaultTokenQuota)
+		case "cosmosdb", "cosmos":
+			cosmosStore, err := cosmosdb.NewCosmosStore(cfg.CosmosDBEndpoint, cfg.CosmosDBKey, cfg.CosmosDBConnectionString, cfg.CosmosDBDatabase, cfg.CosmosDBContainer)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize Cosmos DB CostStore: %w", err)
+			}
+			bundle.CostStore = cosmosStore
+		case "firestore", "datastore":
+			fsStore, err := firestore.NewFirestoreStore(context.Background(), cfg.FirestoreProjectID, cfg.FirestoreDatabase)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize Firestore CostStore: %w", err)
+			}
+			bundle.CostStore = fsStore
 		case "valkey", "redis":
 			redisURL := cfg.ValkeyURL
 			if redisURL == "" {
@@ -116,14 +136,8 @@ func InitializeStores(cfg *config.Config) (*StoreBundle, error) {
 			}
 			bundle.CostStore = vkStore
 			log.Printf("[INFO] [STORAGE] Initialized Valkey/Redis CostStore at %s", redisURL)
-		case "postgres", "postgresql":
-			pgStore, err := postgres.NewPostgresStore(cfg.PostgresDSN)
-			if err != nil {
-				return nil, fmt.Errorf("failed to initialize PostgreSQL CostStore: %w", err)
-			}
-			bundle.CostStore = pgStore
 		default:
-			return nil, fmt.Errorf("unknown COST_STORE type '%s'. Supported: sqlite, dynamodb, valkey, redis, postgres", costStoreType)
+			return nil, fmt.Errorf("unknown COST_STORE type '%s'. Supported: sqlite, dynamodb, cosmosdb, firestore, valkey, redis", costStoreType)
 		}
 	}
 

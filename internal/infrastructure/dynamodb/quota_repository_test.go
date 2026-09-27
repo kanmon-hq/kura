@@ -308,3 +308,65 @@ func TestMemoryQuotaRepository_Ping(t *testing.T) {
 		t.Fatalf("expected ping to succeed, got error: %v", err)
 	}
 }
+
+func TestDynamoDBQuotaRepository_AllMethods(t *testing.T) {
+	ctx := context.Background()
+	repo := newMemoryQuotaRepository(1000000)
+
+	// Config
+	_ = repo.SetServiceLimit(ctx, "svc-wrap", 200.0, "payg")
+	sCfg, _ := repo.GetServiceConfig(ctx, "svc-wrap")
+	if sCfg == nil || sCfg.CostLimit != 200.0 {
+		t.Errorf("unexpected service config")
+	}
+
+	_ = repo.SetTenantLimit(ctx, "svc-wrap", "t-wrap", 100.0, "capped")
+	tCfg, _ := repo.GetTenantConfig(ctx, "svc-wrap", "t-wrap")
+	if tCfg == nil || tCfg.CostLimit != 100.0 {
+		t.Errorf("unexpected tenant config")
+	}
+
+	// Cost & Usage
+	_ = repo.IncrementCost(ctx, "svc-wrap", "t-wrap", "2026-09", 100, 100, 0.02)
+	cost, tokens, _ := repo.GetServiceCost(ctx, "svc-wrap", "2026-09")
+	if tokens != 200 || cost != 0.02 {
+		t.Errorf("unexpected service cost/tokens: %f, %d", cost, tokens)
+	}
+	tCost, tTokens, _ := repo.GetTenantCost(ctx, "svc-wrap", "t-wrap", "2026-09")
+	if tTokens != 200 || tCost != 0.02 {
+		t.Errorf("unexpected tenant cost/tokens: %f, %d", tCost, tTokens)
+	}
+
+	_ = repo.ResetCost(ctx, "svc-wrap", "t-wrap", "2026-09", 0.5, 500)
+	_ = repo.RecordUsage(ctx, "svc-wrap", "t-wrap", "2026-09", "fast", 100, 100, 0.02, "v1")
+	u, _ := repo.GetTenantUsage(ctx, "svc-wrap", "t-wrap", "2026-09")
+	if u == nil || u.TotalTokens != 700 {
+		t.Errorf("unexpected tenant usage, got tokens: %d", u.TotalTokens)
+	}
+
+	r, _ := repo.GetServiceMonthlyUsage(ctx, "svc-wrap", "2026-09")
+	if r == nil || r.TotalTokens != 700 {
+		t.Errorf("unexpected service monthly report, got tokens: %d", r.TotalTokens)
+	}
+
+	allU, _ := repo.GetAllTenantsUsageByMonth(ctx, "2026-09")
+	if len(allU) != 1 {
+		t.Errorf("unexpected all tenants usage")
+	}
+
+	// Lock & Notification & Ping
+	ok, _ := repo.AcquireLock(ctx, "wrap-lock", 60)
+	if !ok {
+		t.Errorf("expected lock acquired")
+	}
+	_ = repo.ReleaseLock(ctx, "wrap-lock")
+
+	ntf := &entity.Notification{Title: "WrapTitle", Message: "WrapMsg"}
+	_ = repo.SaveNotification(ctx, ntf)
+	ntfs, _ := repo.ListNotifications(ctx, 10)
+	if len(ntfs) != 1 {
+		t.Errorf("unexpected notifications length")
+	}
+
+	_ = repo.Ping(ctx)
+}

@@ -140,7 +140,9 @@ Kura はマルチコンテナでの水平スケールと高スループットを
 │ ・トークン・費用の加算        │ ・月次レポート集計・分散ロック │
 └──────────────┬───────────────┴──────────────┬───────────────┘
                ▼                              ▼
-      [ SQLite / DynamoDB / Valkey ]  [ SQLite / DynamoDB / PostgreSQL ]
+      [ SQLite / DynamoDB /          [ SQLite / DynamoDB /
+        Cosmos DB / Firestore /        Cosmos DB / Firestore ]
+        Valkey / Redis ]                      │
                │                              │
                └──────── 補正 (Reconcile) ────┘
 ```
@@ -150,8 +152,10 @@ Kura はマルチコンテナでの水平スケールと高スループットを
 | 用途 | 推奨構成 | 特徴 |
 | :--- | :--- | :--- |
 | **試用・開発・単一ノード** | **SQLite（既定）** | 外部 DB 不要。単一バイナリ・1 つのファイルで再起動後もデータが残る。 |
-| **マルチコンテナ・厳密** | **DynamoDB** | 水平スケール、アトミック更新による高スループットと完全な永続性。 |
-| **マルチコンテナ・速度優先** | **Valkey / Redis**（コスト管理）+ 補正<br/>**PostgreSQL 等**（集計結果） | サブミリ秒の極低レイテンシーとリレーショナルな月次レポート集計。 |
+| **マルチコンテナ（AWS）** | **DynamoDB** | 水平スケール、アトミック更新による高スループットと完全な永続性。 |
+| **マルチコンテナ（Azure）** | **Azure Cosmos DB** | NoSQL API によるアトミックパッチ更新とスケーラブルな時系列集計。 |
+| **マルチコンテナ（GCP）** | **Google Cloud Firestore** | マネージド NoSQL。アトミックインクリメントと分散トランザクション。 |
+| **マルチコンテナ・速度優先** | **Valkey / Redis**（コスト管理）+ 補正<br/>**DynamoDB / Cosmos DB / Firestore 等**（集計結果） | サブミリ秒の極低レイテンシーと定期補正による整合性維持。 |
 
 ### 対応バックエンド詳細
 
@@ -160,15 +164,17 @@ Kura はマルチコンテナでの水平スケールと高スループットを
 | 役割 | 対応バックエンド | 特徴・注意点 |
 | :--- | :--- | :--- |
 | **コスト管理ストア**<br/>(`COST_STORE`) | **sqlite** | **既定・単一ノード標準**。CGO 不要の純 Go 実装。単一インスタンス専用（マルチコンテナ不可）。 |
-| | **dynamodb** | **マルチコンテナ推奨**。アトミック更新による高スループットと完全な永続性を提供。 |
-| | **valkey** / **redis** | **高速**。サブミリ秒の極低レイテンシー。下記の**補正機能**とセットで運用する。 |
-| | **postgres** | **非推奨**。ホット行への更新競合とレイテンシの観点から推奨されない（起動時に警告ログを出力）。 |
+| | **dynamodb** | **AWS 推奨**。アトミック更新による高スループットと完全な永続性を提供。 |
+| | **cosmosdb** | **Azure 推奨**。Partial Document Update (Patch) によるアトミック加算。 |
+| | **firestore** | **GCP 推奨**。`firestore.Increment` によるアトミック加算。 |
+| | **valkey** / **redis** | **超高速**。サブミリ秒の極低レイテンシー。下記の**補正機能**とセットで運用する。 |
 | **集計結果ストア**<br/>(`USAGE_STORE`) | **sqlite** | **既定・単一ノード標準**。単一ファイルに時系列利用実績・月次レポート・ロックを永続化。 |
-| | **dynamodb** | **マルチコンテナ推奨**。Single Table Design による時系列利用実績の永続化。 |
-| | **postgres** | **マルチコンテナ推奨**。リレーショナル構造による月次レポート集計とロック。 |
+| | **dynamodb** | **AWS 推奨**。Single Table Design による時系列利用実績の永続化。 |
+| | **cosmosdb** | **Azure 推奨**。コンテナ分割または Single Container による集計とロック。 |
+| | **firestore** | **GCP 推奨**。コレクション別ドキュメント永続化と分散ロック。 |
 
 > [!NOTE]
-> - **SQLite の単一インスタンス制約**: SQLite はファイルロックを用いるため、複数コンテナからの同時マウント・並行書き込みには対応していない。マルチコンテナでスケールさせる場合は DynamoDB または Valkey + PostgreSQL / DynamoDB を使用すること。
+> - **SQLite の単一インスタンス制約**: SQLite はファイルロックを用いるため、複数コンテナからの同時マウント・並行書き込みには対応していない。マルチコンテナでスケールさせる場合は DynamoDB / Cosmos DB / Firestore または Valkey との組み合わせを使用すること。
 > - **不正な組み合わせの検知**: 起動時にストアの組み合わせを検証し、不正な構成（例: 集計結果ストアに Valkey / Redis を指定するなど、集計クエリが実行できない構成）は起動時に即座にエラーで終了（Fail-Fast）する。
 > - **`memory` 設定の廃止**: `memory` は本番設定の選択肢から外され、テスト専用パッケージへ移行した。環境変数で `memory` を指定すると起動を拒否する。
 
@@ -177,14 +183,14 @@ Kura はマルチコンテナでの水平スケールと高スループットを
 コスト管理ストアに Valkey / Redis を使用する場合、インスタンスのフェイルオーバーや再起動によってメモリ上のカウンタが失われる可能性がある。Kura は集計結果ストアの実績データから当月の利用累計を再集計し、コスト管理ストアの残高を自動再構築・同期する補正機能を備えている。
 
 - **自動実行**: 起動時、および一定間隔（環境変数 `RECONCILE_INTERVAL_SECONDS`、デフォルト 300 秒）でバックグラウンド実行される。
-- **排他制御**: 複数コンテナが同時に補正を実行しないよう、集計結果ストアの分散ロック（DynamoDB ロックまたは PostgreSQL / SQLite ロック）を獲得して安全に実行する。
+- **排他制御**: 複数コンテナが同時に補正を実行しないよう、集計結果ストアの分散ロック（DynamoDB / Cosmos DB / Firestore / SQLite ロック）を獲得して安全に実行する。
 - **手動実行**: 管理 API（`POST /v1/admin/jobs/reconcile`）から即時補正をトリガー可能である。
 
 ---
 
 ## キャッシュ層 (Cache Layer)
 
-マルチコンテナ運用時（DynamoDB / Valkey / PostgreSQL）、ホットパスでのストア負荷を軽減し極低レイテンシーを実現するため、ストアインターフェースをラップする**キャッシュデコレーター**を内包している。
+マルチコンテナ運用時（DynamoDB / Valkey 等）、ホットパスでのストア負荷を軽減し極低レイテンシーを実現するため、ストアインターフェースをラップする**キャッシュデコレーター**を内包している。
 
 ※ SQLite バックエンド使用時は、単一ノード前提のためキャッシュ層は自動的にバイパスされる。
 
@@ -398,8 +404,8 @@ Kura は起動時に以下の環境変数を読み込んで動作する。
 | `INSECURE_NO_GATEWAY_AUTH` | `false` | 任意 | `true` の場合、共有シークレットの検証なしで起動（**開発・検証専用**。起動時に警告出力） |
 | `PORT` | `8080` | 任意 | HTTP サーバー待受ポート番号 |
 | `AWS_REGION` | `ap-northeast-1` | 任意 | AWS リージョン |
-| `COST_STORE` | `sqlite` | 任意 | コスト管理ストア種別 (`sqlite` / `dynamodb` / `valkey` / `redis` / `postgres`) |
-| `USAGE_STORE` | `sqlite` | 任意 | 集計結果ストア種別 (`sqlite` / `dynamodb` / `postgres`) |
+| `COST_STORE` | `sqlite` | 任意 | コスト管理ストア種別 (`sqlite` / `dynamodb` / `cosmosdb` / `firestore` / `valkey` / `redis`) |
+| `USAGE_STORE` | `sqlite` | 任意 | 集計結果ストア種別 (`sqlite` / `dynamodb` / `cosmosdb` / `firestore`) |
 | `SQLITE_PATH` | `./data/kura.db` | 任意 | SQLite データベースファイルパス |
 | `CACHE_ENABLED` | `true` | 任意 | キャッシュ層の有効化フラグ (SQLite では自動バイパス) |
 | `CACHE_NEGATIVE_TTL_SECONDS` | `300` | 任意 | 遮断済みテナントのネガティブキャッシュ最大 TTL (秒) |
@@ -408,8 +414,14 @@ Kura は起動時に以下の環境変数を読み込んで動作する。
 | `CACHE_BATCH_FLUSH_INTERVAL_SECONDS` | `0` | 任意 | 加算バッチ書き込みフラッシュ間隔 (秒、`0` で即時反映) |
 | `DYNAMODB_ENDPOINT` | 空文字 | 任意 | DynamoDB エンドポイント URL (ローカル開発時: `http://dynamodb:8000`) |
 | `DYNAMODB_TABLE_NAME` | `KuraUsage` | 任意 | 利用実績・クォータ管理用 DynamoDB テーブル名 |
+| `COSMOSDB_ENDPOINT` | 空文字 | 任意 | Azure Cosmos DB エンドポイント URL |
+| `COSMOSDB_KEY` | 空文字 | 任意 | Azure Cosmos DB プライマリキー |
+| `COSMOSDB_CONNECTION_STRING` | 空文字 | 任意 | Azure Cosmos DB 接続文字列 |
+| `COSMOSDB_DATABASE` | `kura` | 任意 | Azure Cosmos DB データベース名 |
+| `COSMOSDB_CONTAINER` | `usage` | 任意 | Azure Cosmos DB コンテナ名 |
+| `FIRESTORE_PROJECT_ID` | 空文字 | 任意 | Google Cloud Firestore GCP プロジェクト ID |
+| `FIRESTORE_DATABASE` | `(default)` | 任意 | Google Cloud Firestore データベース ID |
 | `VALKEY_URL` | 空文字 | 任意 | Valkey / Redis 接続 URL (`redis://localhost:6379/0`) |
-| `POSTGRES_DSN` | 空文字 | 任意 | PostgreSQL 接続文字列 (`postgres://user:pass@host:5432/db`) |
 | `PRICING_FILE` | `pricing.json` | 任意 | モデル別単価表 JSON ファイルパス |
 | `UNKNOWN_MODEL_POLICY` | `warn` | 任意 | 単価表未定義モデルの扱い (`warn`: デフォルト単価でフォールバック / `reject`: 400 で遮断) |
 | `RECONCILE_INTERVAL_SECONDS` | `300` | 任意 | Valkey/Redis 利用時の残高補正ジョブ実行間隔 (秒) |

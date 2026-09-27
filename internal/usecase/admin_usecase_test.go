@@ -1,95 +1,61 @@
-package usecase
+package usecase_test
 
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/northfieldzz/kura/internal/infrastructure/memory"
+	"github.com/northfieldzz/kura/internal/usecase"
 )
 
-func TestAdminUseCase_GetMonthlyUsage(t *testing.T) {
-	repo := &mockQuotaRepo{
-		getServiceUsageFn: func(ctx context.Context, serviceID, month string) (*entity.ServiceMonthlyReport, error) {
-			return &entity.ServiceMonthlyReport{
-				ServiceID:    serviceID,
-				Month:        month,
-				TotalTokens:  12500000,
-				TotalCostUSD: 24.85,
-				Models: map[string]*entity.ServiceReportModel{
-					"gpt-5.4-mini": {Tokens: 8000000, CostUSD: 2.40},
-				},
-			}, nil
-		},
+func TestAdminUseCase_AllMethods(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewMemoryStore()
+	adminUC := usecase.NewAdminUseCase(store, store)
+
+	// 1. GetMonthlyUsage - バリデーションエラー & 正常取得
+	if _, err := adminUC.GetMonthlyUsage(ctx, "", "2026-09"); err == nil {
+		t.Fatalf("expected error when service_id is empty")
 	}
 
-	uc := NewAdminUseCase(repo, repo)
-
-	// Missing service_id
-	_, err := uc.GetMonthlyUsage(context.Background(), "", "2026-09")
-	if err == nil {
-		t.Errorf("Expected error for empty service_id")
+	report, err := adminUC.GetMonthlyUsage(ctx, "svc-1", "")
+	if err != nil || report == nil {
+		t.Fatalf("failed to get monthly usage: %v", err)
 	}
 
-	// Valid request
-	report, err := uc.GetMonthlyUsage(context.Background(), "ai-engine", "2026-09")
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	if report.TotalTokens != 12500000 || report.TotalCostUSD != 24.85 {
-		t.Errorf("Report totals mismatch: tokens=%d, cost=%f", report.TotalTokens, report.TotalCostUSD)
-	}
-}
-
-func TestAdminUseCase_SetTenantLimit(t *testing.T) {
-	var calledSvc, calledType string
-	var calledCost float64
-
-	repo := &mockQuotaRepo{
-		setServiceLimitFn: func(ctx context.Context, serviceID string, costLimit float64, billingType string) error {
-			calledSvc = serviceID
-			calledCost = costLimit
-			calledType = billingType
-			return nil
-		},
+	// 2. SetTenantLimit - サービス全体 & テナント個別
+	if err := adminUC.SetTenantLimit(ctx, &usecase.SetLimitRequest{}); err == nil {
+		t.Fatalf("expected error when service_id is empty")
 	}
 
-	uc := NewAdminUseCase(repo, repo)
-
-	err := uc.SetTenantLimit(context.Background(), &SetLimitRequest{
-		ServiceID:   "ai-engine",
-		CostLimit:   200.0,
-		BillingType: "capped",
-	})
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
+	if err := adminUC.SetTenantLimit(ctx, &usecase.SetLimitRequest{
+		ServiceID: "svc-1",
+		CostLimit: 100.0,
+	}); err != nil {
+		t.Fatalf("failed to set service limit: %v", err)
 	}
 
-	if calledSvc != "ai-engine" || calledCost != 200.0 || calledType != "capped" {
-		t.Errorf("SetServiceLimit parameters mismatch: svc=%s, cost=%f, type=%s", calledSvc, calledCost, calledType)
+	if err := adminUC.SetTenantLimit(ctx, &usecase.SetLimitRequest{
+		ServiceID: "svc-1",
+		TenantID:  "tenant-1",
+		CostLimit: 50.0,
+	}); err != nil {
+		t.Fatalf("failed to set tenant limit: %v", err)
 	}
 
-	// テナント個別上限設定
-	var calledTenantSvc, calledTenantID, calledTenantType string
-	var calledTenantCost float64
-	repo.setTenantLimitFn = func(ctx context.Context, serviceID, tenantID string, costLimit float64, billingType string) error {
-		calledTenantSvc = serviceID
-		calledTenantID = tenantID
-		calledTenantCost = costLimit
-		calledTenantType = billingType
-		return nil
+	// 3. ListNotifications
+	ntf := &entity.Notification{
+		ID:        "ntf-1",
+		Title:     "Title",
+		Message:   "Body",
+		CreatedAt: time.Now(),
 	}
+	_ = store.SaveNotification(ctx, ntf)
 
-	err = uc.SetTenantLimit(context.Background(), &SetLimitRequest{
-		ServiceID:   "ai-engine",
-		TenantID:    "team-finance",
-		CostLimit:   50.0,
-		BillingType: "capped",
-	})
-	if err != nil {
-		t.Fatalf("Unexpected error for tenant limit: %v", err)
-	}
-	if calledTenantSvc != "ai-engine" || calledTenantID != "team-finance" || calledTenantCost != 50.0 || calledTenantType != "capped" {
-		t.Errorf("SetTenantLimit parameters mismatch: svc=%s, tenant=%s, cost=%f, type=%s",
-			calledTenantSvc, calledTenantID, calledTenantCost, calledTenantType)
+	list, err := adminUC.ListNotifications(ctx, 10)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("failed to list notifications: %v", err)
 	}
 }

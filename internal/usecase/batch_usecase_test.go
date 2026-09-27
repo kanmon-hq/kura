@@ -110,3 +110,28 @@ func TestBatchUseCase_QuotaAlerts_LockingAndThreshold(t *testing.T) {
 	}
 	notifier.mu.Unlock()
 }
+
+func TestBatchUseCase_RunReconciliation(t *testing.T) {
+	repo := dynamodb.NewMemoryQuotaRepository(1000000)
+	notifier := &mockNotifier{}
+	batchUC := NewBatchUseCase(repo, repo, notifier)
+	ctx := context.Background()
+
+	currentMonth := entity.CurrentMonthJST()
+
+	// テナント利用実績を記録
+	_ = repo.IncrementTenantUsage(ctx, "payment-service", "team-1", currentMonth, "fast", 1000, 2000, 0.05)
+	_ = repo.IncrementTenantUsage(ctx, "payment-service", "team-2", currentMonth, "fast", 3000, 4000, 0.15)
+
+	// 1回目の実行: 正常に補正
+	err := batchUC.RunReconciliation(ctx)
+	if err != nil {
+		t.Fatalf("expected nil error on reconciliation, got %v", err)
+	}
+
+	// 補正後のコスト確認
+	tCost, tTokens, _ := repo.GetTenantCost(ctx, "payment-service", "team-1", currentMonth)
+	if tTokens != 3000 || tCost != 0.05 {
+		t.Errorf("unexpected reconciled tenant cost/tokens: %f, %d", tCost, tTokens)
+	}
+}

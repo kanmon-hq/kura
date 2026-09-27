@@ -22,14 +22,20 @@ type Config struct {
 	BedrockEndpoint                string
 	DefaultTokenQuota              int64
 	LogChannelBufferSize           int
-	CostStoreType                  string // "sqlite" | "dynamodb" | "valkey" | "redis" | "postgres"
-	UsageStoreType                 string // "sqlite" | "dynamodb" | "postgres"
+	CostStoreType                  string // "sqlite" | "dynamodb" | "cosmosdb" | "firestore" | "valkey" | "redis"
+	UsageStoreType                 string // "sqlite" | "dynamodb" | "cosmosdb" | "firestore"
 	SQLitePath                     string
 	DynamoDBEndpoint               string
 	DynamoDBTableName              string
+	CosmosDBEndpoint               string
+	CosmosDBKey                    string
+	CosmosDBConnectionString       string
+	CosmosDBDatabase               string
+	CosmosDBContainer              string
+	FirestoreProjectID             string
+	FirestoreDatabase              string
 	ValkeyURL                      string
 	RedisURL                       string
-	PostgresDSN                    string
 	ReconcileIntervalSeconds       int
 	PricingFilePath                string
 	UnknownModelPolicy             string // "warn" | "reject"
@@ -76,9 +82,15 @@ func Load() *Config {
 		SQLitePath:                     getEnv("SQLITE_PATH", "./data/kura.db"),
 		DynamoDBEndpoint:               getEnv("DYNAMODB_ENDPOINT", ""),
 		DynamoDBTableName:              getEnv("DYNAMODB_TABLE_NAME", "KuraUsage"),
+		CosmosDBEndpoint:               getEnv("COSMOSDB_ENDPOINT", ""),
+		CosmosDBKey:                    getEnv("COSMOSDB_KEY", ""),
+		CosmosDBConnectionString:       getEnv("COSMOSDB_CONNECTION_STRING", ""),
+		CosmosDBDatabase:               getEnv("COSMOSDB_DATABASE", "kura"),
+		CosmosDBContainer:              getEnv("COSMOSDB_CONTAINER", "usage"),
+		FirestoreProjectID:             getEnv("FIRESTORE_PROJECT_ID", ""),
+		FirestoreDatabase:              getEnv("FIRESTORE_DATABASE", "(default)"),
 		ValkeyURL:                      getEnv("VALKEY_URL", getEnv("REDIS_URL", "")),
 		RedisURL:                       getEnv("REDIS_URL", ""),
-		PostgresDSN:                    getEnv("POSTGRES_DSN", ""),
 		ReconcileIntervalSeconds:       getEnvAsInt("RECONCILE_INTERVAL_SECONDS", 0),
 		PricingFilePath:                getEnv("PRICING_FILE", "pricing.json"),
 		UnknownModelPolicy:             getEnv("UNKNOWN_MODEL_POLICY", "warn"),
