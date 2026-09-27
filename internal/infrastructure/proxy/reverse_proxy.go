@@ -96,8 +96,8 @@ func (p *LLMProxy) ServeForward(
 	}
 
 	// 転送先 URL のログ出力 (デバッグ用)
-	log.Printf("[DEBUG] Forwarding request to vendor: %s (Method: %s, RequestID: %s)\n",
-		targetReq.URL.String(), targetReq.Method, requestID)
+	log.Printf("[DEBUG] Forwarding request to vendor (Method: %s, RequestID: %s)\n",
+		targetReq.Method, requestID)
 
 	// ストリーミング処理
 	if reqObj.Stream {
@@ -141,7 +141,7 @@ func (p *LLMProxy) handleStreaming(
 			log.Printf("[INFO] Client canceled streaming before response headers received. RequestID: %s", requestID)
 			return
 		}
-		log.Printf("[ERROR] Vendor connection error (RequestID: %s): %v", requestID, err)
+		log.Printf("[ERROR] Vendor connection error (RequestID: %s)", requestID)
 		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, "Vendor connection error", "")
 		return
 	}
@@ -205,7 +205,7 @@ func (p *LLMProxy) handleStreaming(
 
 			// チャンクをクライアントへ即時転送（クライアント切断時は即時キャンセル）
 			if _, writeErr := w.Write(line); writeErr != nil {
-				log.Printf("[INFO] Client connection lost during stream write (RequestID: %s): %v", requestID, writeErr)
+				log.Printf("[INFO] Client connection lost during stream write (RequestID: %s)", requestID)
 				clientDisconnected = true
 				cancelStream()
 				break
@@ -217,7 +217,7 @@ func (p *LLMProxy) handleStreaming(
 			if errors.Is(streamCtx.Err(), context.Canceled) {
 				clientDisconnected = true
 			} else if err != io.EOF {
-				log.Printf("[WARN] Streaming read error from vendor: %v (RequestID: %s)", err, requestID)
+				log.Printf("[WARN] Streaming read error from vendor (RequestID: %s)", requestID)
 			}
 			break
 		}
@@ -295,7 +295,7 @@ func (p *LLMProxy) handleNonStreaming(
 			log.Printf("[INFO] Client canceled non-streaming request before response headers received. RequestID: %s", requestID)
 			return
 		}
-		log.Printf("[ERROR] Vendor connection error (RequestID: %s): %v", requestID, err)
+		log.Printf("[ERROR] Vendor connection error (RequestID: %s)", requestID)
 		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, "Vendor connection error", "")
 		return
 	}
@@ -371,7 +371,7 @@ func (p *LLMProxy) handleNonStreaming(
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(resp.StatusCode)
 	if _, err := w.Write(normalizedBody); err != nil {
-		log.Printf("[INFO] Failed to write response to client (client likely disconnected). RequestID: %s, Err: %v", requestID, err)
+		log.Printf("[INFO] Failed to write response to client (client likely disconnected). RequestID: %s", requestID)
 	}
 
 	// Prometheus メトリクス記録
@@ -408,7 +408,7 @@ func (p *LLMProxy) recordUsage(
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := p.costStore.IncrementCost(ctx, serviceID, tenantID, currentMonth, promptTokens, completionTokens, cost); err != nil {
-				log.Printf("[ERROR] Failed to increment cost in CostStore: %v", err)
+				log.Printf("[ERROR] Failed to increment cost in CostStore")
 			}
 		}()
 	}
@@ -419,7 +419,7 @@ func (p *LLMProxy) recordUsage(
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := p.usageStore.RecordUsage(ctx, serviceID, tenantID, currentMonth, model, promptTokens, completionTokens, cost, pricingVersion); err != nil {
-				log.Printf("[ERROR] Failed to record usage in UsageStore: %v", err)
+				log.Printf("[ERROR] Failed to record usage in UsageStore")
 			}
 		}()
 	}
