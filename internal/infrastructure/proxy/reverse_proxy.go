@@ -72,11 +72,11 @@ func (p *LLMProxy) ServeForward(
 	gatewayStartTime := time.Now()
 
 	// 1. Trace Context & Request ID の解決と伝播
-	requestID := r.Header.Get("X-Request-ID")
+	requestID := getHeaderFast(r.Header, "X-Request-Id")
 	if requestID == "" {
 		requestID = uuid.New().String()
 	}
-	traceParent := r.Header.Get("traceparent")
+	traceParent := getHeaderFast(r.Header, "Traceparent")
 
 	// ベンダー用リクエストの準備
 	targetReq, err := adapter.PrepareRequest(ctx, reqObj, r)
@@ -484,4 +484,14 @@ func sendError(w http.ResponseWriter, statusCode int, errType, message, vendorCo
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	_, _ = w.Write(errResp.ToJSON())
+}
+
+// ⚡ Bolt Optimization: getHeaderFast avoids r.Header.Get() overhead.
+// net/http already canonicalizes headers during parsing. By directly accessing the map,
+// we skip the string allocations and overhead in net/textproto.CanonicalMIMEHeaderKey.
+func getHeaderFast(h http.Header, key string) string {
+	if v, ok := h[key]; ok && len(v) > 0 {
+		return v[0]
+	}
+	return ""
 }
