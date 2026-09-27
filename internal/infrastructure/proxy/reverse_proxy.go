@@ -96,8 +96,7 @@ func (p *LLMProxy) ServeForward(
 	}
 
 	// 転送先 URL のログ出力 (デバッグ用)
-	log.Printf("[DEBUG] Forwarding request to vendor (Method: %s, RequestID: %s)\n",
-		targetReq.Method, requestID)
+	log.Printf("[DEBUG] Forwarding request to vendor (Method: %s)\n", targetReq.Method)
 
 	// ストリーミング処理
 	if reqObj.Stream {
@@ -141,7 +140,7 @@ func (p *LLMProxy) handleStreaming(
 			log.Printf("[INFO] Client canceled streaming before response headers received")
 			return
 		}
-		log.Printf("[ERROR] Vendor connection error (RequestID: %s)", requestID)
+		log.Printf("[ERROR] Vendor connection error")
 		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, "Vendor connection error", "")
 		return
 	}
@@ -205,7 +204,7 @@ func (p *LLMProxy) handleStreaming(
 
 			// チャンクをクライアントへ即時転送（クライアント切断時は即時キャンセル）
 			if _, writeErr := w.Write(line); writeErr != nil {
-				log.Printf("[INFO] Client connection lost during stream write (RequestID: %s)", requestID)
+				log.Printf("[INFO] Client connection lost during stream write")
 				clientDisconnected = true
 				cancelStream()
 				break
@@ -217,7 +216,7 @@ func (p *LLMProxy) handleStreaming(
 			if errors.Is(streamCtx.Err(), context.Canceled) {
 				clientDisconnected = true
 			} else if err != io.EOF {
-				log.Printf("[WARN] Streaming read error from vendor (RequestID: %s)", requestID)
+				log.Printf("[WARN] Streaming read error from vendor")
 			}
 			break
 		}
@@ -293,7 +292,7 @@ func (p *LLMProxy) handleNonStreaming(
 			log.Printf("[INFO] Client canceled non-streaming request before response headers received")
 			return
 		}
-		log.Printf("[ERROR] Vendor connection error (RequestID: %s)", requestID)
+		log.Printf("[ERROR] Vendor connection error")
 		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, "Vendor connection error", "")
 		return
 	}
@@ -369,7 +368,7 @@ func (p *LLMProxy) handleNonStreaming(
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(resp.StatusCode)
 	if _, err := w.Write(normalizedBody); err != nil {
-		log.Printf("[INFO] Failed to write response to client (client likely disconnected). RequestID: %s", requestID)
+		log.Printf("[INFO] Failed to write response to client (client likely disconnected)")
 	}
 
 	// Prometheus メトリクス記録
