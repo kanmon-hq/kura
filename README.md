@@ -286,8 +286,8 @@ flowchart TD
         end
 
         subgraph StorageLayer ["ストレージ層 (役割分離)"]
-            COST_STORE["コスト管理ストア (ホットパス)<br/>SQLite / DynamoDB / Valkey"]
-            USAGE_STORE["集計結果ストア (永続)<br/>SQLite / DynamoDB / PostgreSQL"]
+            COST_STORE["コスト管理ストア (ホットパス)<br/>SQLite / DynamoDB / Cosmos DB / Firestore / Valkey"]
+            USAGE_STORE["集計結果ストア (永続)<br/>SQLite / DynamoDB / Cosmos DB / Firestore"]
             CRON["自律スケジューラー (月次締め・補正)"]
         end
     end

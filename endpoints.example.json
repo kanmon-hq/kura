@@ -1,0 +1,63 @@
+{
+  "version": "1.0",
+  "default": [
+    {
+      "name": "foundry-sub1-global",
+      "provider": "azure",
+      "url": "https://res1.openai.azure.com",
+      "key": "env:AZURE_OPENAI_API_KEY_1",
+      "priority": 1
+    },
+    {
+      "name": "foundry-sub2-global",
+      "provider": "azure",
+      "url": "https://res2.openai.azure.com",
+      "key": "env:AZURE_OPENAI_API_KEY_2",
+      "priority": 2
+    }
+  ],
+  "prefixes": {
+    "claude": [
+      {
+        "name": "bedrock-claude-us-east-1",
+        "provider": "bedrock",
+        "region": "us-east-1",
+        "key": "env:BEDROCK_API_KEY",
+        "priority": 1
+      },
+      {
+        "name": "foundry-serverless-claude",
+        "provider": "azure",
+        "url": "https://foundry-claude.services.ai.azure.com",
+        "key": "env:FOUNDRY_SERVERLESS_KEY",
+        "priority": 2
+      }
+    ],
+    "gemini": [
+      {
+        "name": "gemini-official",
+        "provider": "gemini",
+        "key": "env:GEMINI_API_KEY",
+        "priority": 1
+      }
+    ]
+  },
+  "overrides": {
+    "gpt-4o": [
+      {
+        "name": "foundry-ptu-res",
+        "provider": "azure",
+        "url": "https://res-ptu.openai.azure.com",
+        "key": "env:PTU_API_KEY",
+        "priority": 1
+      },
+      {
+        "name": "foundry-sub1-global",
+        "provider": "azure",
+        "url": "https://res1.openai.azure.com",
+        "key": "env:AZURE_OPENAI_API_KEY_1",
+        "priority": 2
+      }
+    ]
+  }
+}

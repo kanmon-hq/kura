@@ -14,13 +14,17 @@ import (
 type ChatUseCase interface {
 	HandleChatCompletion(w http.ResponseWriter, r *http.Request, tenantCtx *entity.TenantContext, req *entity.ChatCompletionRequest)
 	RegisterAdapter(prefix string, adapter service.Adapter)
+	RegisterProviderAdapter(provider string, adapter service.Adapter)
+	SetRouter(router *entity.Router)
 	ResolveAdapter(model string) service.Adapter
 }
 
 type chatUseCase struct {
-	defaultAdapter service.Adapter
-	adapters       map[string]service.Adapter
-	proxy          *proxy.LLMProxy
+	defaultAdapter   service.Adapter
+	adapters         map[string]service.Adapter
+	providerAdapters map[string]service.Adapter
+	router           *entity.Router
+	proxy            *proxy.LLMProxy
 }
 
 // NewChatUseCase は ChatUseCase を生成する
@@ -29,14 +33,26 @@ func NewChatUseCase(
 	proxy *proxy.LLMProxy,
 ) ChatUseCase {
 	return &chatUseCase{
-		defaultAdapter: defaultAdapter,
-		adapters:       make(map[string]service.Adapter),
-		proxy:          proxy,
+		defaultAdapter:   defaultAdapter,
+		adapters:         make(map[string]service.Adapter),
+		providerAdapters: make(map[string]service.Adapter),
+		proxy:            proxy,
 	}
+}
+
+func (u *chatUseCase) SetRouter(router *entity.Router) {
+	u.router = router
 }
 
 func (u *chatUseCase) RegisterAdapter(prefix string, adapter service.Adapter) {
 	u.adapters[strings.ToLower(prefix)] = adapter
+	if adapter != nil {
+		u.providerAdapters[strings.ToLower(string(adapter.Provider()))] = adapter
+	}
+}
+
+func (u *chatUseCase) RegisterProviderAdapter(provider string, adapter service.Adapter) {
+	u.providerAdapters[strings.ToLower(provider)] = adapter
 }
 
 func (u *chatUseCase) ResolveAdapter(model string) service.Adapter {
@@ -45,6 +61,13 @@ func (u *chatUseCase) ResolveAdapter(model string) service.Adapter {
 		if strings.HasPrefix(lowerModel, prefix) {
 			return adapter
 		}
+	}
+	return u.defaultAdapter
+}
+
+func (u *chatUseCase) ResolveProviderAdapter(provider string) service.Adapter {
+	if adapter, ok := u.providerAdapters[strings.ToLower(provider)]; ok {
+		return adapter
 	}
 	return u.defaultAdapter
 }
@@ -70,6 +93,23 @@ func (u *chatUseCase) HandleChatCompletion(
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write(errResp.ToJSON())
+			return
+		}
+	}
+
+	// ルーターによる候補エンドポイントの解決
+	if u.router != nil {
+		candidates := u.router.ResolveCandidates(req.Model)
+		if len(candidates) > 0 {
+			u.proxy.ServeForwardCandidates(
+				w,
+				r,
+				tenantCtx,
+				req,
+				candidates,
+				u.ResolveProviderAdapter,
+				u.router.GetCircuitBreaker(),
+			)
 			return
 		}
 	}

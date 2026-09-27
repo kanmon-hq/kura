@@ -84,10 +84,66 @@ func main() {
 	// ベンダーアダプター
 	openAIAdapter := adapter.NewOpenAIAdapter(cfg)
 	bedrockAdapter := adapter.NewBedrockAdapter(cfg)
+	geminiAdapter := adapter.NewGeminiAdapter(cfg)
 
 	// プロバイダ有効化状況のロギング
-	log.Printf("[INFO] Provider Status -> Azure (GPT/Claude): %t, Bedrock: %t",
-		openAIAdapter.IsEnabled(), bedrockAdapter.IsEnabled())
+	log.Printf("[INFO] Provider Status -> Azure (GPT/Claude): %t, Bedrock: %t, Gemini: %t",
+		openAIAdapter.IsEnabled(), bedrockAdapter.IsEnabled(), geminiAdapter.IsEnabled())
+
+	// エンドポイント・ルーティング設定のロード (endpoints.json)
+	routingCfg, err := entity.LoadRoutingConfig(cfg.EndpointsFilePath)
+	if err != nil {
+		log.Printf("[WARN] [ROUTING] Failed to load %s: %v. Generating default pool from environment variables.", cfg.EndpointsFilePath, err)
+		routingCfg = &entity.RoutingConfig{}
+	}
+	// 設定ファイルに default がない場合、環境変数からフォールバックプールを構築
+	if len(routingCfg.Default) == 0 && openAIAdapter.IsEnabled() {
+		routingCfg.Default = append(routingCfg.Default, entity.EndpointConfig{
+			Name:     "azure-default",
+			Provider: "azure",
+			URL:      cfg.AzureOpenAIEndpoint,
+			Key:      cfg.AzureOpenAIAPIKey,
+			Priority: 1,
+		})
+	}
+	if routingCfg.Prefixes == nil {
+		routingCfg.Prefixes = make(map[string][]entity.EndpointConfig)
+	}
+	if _, ok := routingCfg.Prefixes["claude"]; !ok && (bedrockAdapter.IsEnabled() || openAIAdapter.IsEnabled()) {
+		if bedrockAdapter.IsEnabled() {
+			routingCfg.Prefixes["claude"] = append(routingCfg.Prefixes["claude"], entity.EndpointConfig{
+				Name:     "bedrock-claude",
+				Provider: "bedrock",
+				Region:   cfg.BedrockRegion,
+				Key:      cfg.BedrockAPIKey,
+				Priority: 1,
+			})
+		}
+		if openAIAdapter.IsEnabled() {
+			routingCfg.Prefixes["claude"] = append(routingCfg.Prefixes["claude"], entity.EndpointConfig{
+				Name:     "azure-claude",
+				Provider: "azure",
+				URL:      cfg.AzureOpenAIEndpoint,
+				Key:      cfg.AzureOpenAIAPIKey,
+				Priority: 2,
+			})
+		}
+	}
+	if _, ok := routingCfg.Prefixes["gemini"]; !ok && geminiAdapter.IsEnabled() {
+		routingCfg.Prefixes["gemini"] = []entity.EndpointConfig{
+			{
+				Name:     "gemini-default",
+				Provider: "gemini",
+				Key:      cfg.GeminiAPIKey,
+				URL:      cfg.GeminiBaseURL,
+				Priority: 1,
+			},
+		}
+	}
+
+	router := entity.NewRouter(routingCfg, entity.NewCircuitBreaker())
+	log.Printf("[INFO] [ROUTING] Intelligent router initialized (Default: %d endpoints, Prefixes: %d, Overrides: %d)",
+		len(routingCfg.Default), len(routingCfg.Prefixes), len(routingCfg.Overrides))
 
 	// プロキシ & WebSocket
 	llmProxy := proxy.NewLLMProxy(usageLogger, costStore, usageStore, pricingEngine, promMetrics)
@@ -99,9 +155,17 @@ func main() {
 	})
 	adminUseCase := usecase.NewAdminUseCase(costStore, usageStore)
 	chatUseCase := usecase.NewChatUseCase(openAIAdapter, llmProxy)
+	chatUseCase.SetRouter(router)
+	chatUseCase.RegisterProviderAdapter("azure", openAIAdapter)
+	chatUseCase.RegisterProviderAdapter("bedrock", bedrockAdapter)
+	chatUseCase.RegisterProviderAdapter("gemini", geminiAdapter)
+	chatUseCase.RegisterProviderAdapter("openai", openAIAdapter)
+
 	chatUseCase.RegisterAdapter("bedrock/", bedrockAdapter)
 	chatUseCase.RegisterAdapter("amazon.", bedrockAdapter)
 	chatUseCase.RegisterAdapter("anthropic.", bedrockAdapter)
+	chatUseCase.RegisterAdapter("gemini/", geminiAdapter)
+	chatUseCase.RegisterAdapter("gemini-", geminiAdapter)
 
 	internalNotifier := notifier.NewInternalNotifier(usageStore)
 	batchUseCase := usecase.NewBatchUseCase(costStore, usageStore, internalNotifier)

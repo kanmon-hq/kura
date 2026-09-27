@@ -22,7 +22,14 @@ type mockTestAdapter struct {
 func (m *mockTestAdapter) Provider() service.ProviderType { return service.ProviderOpenAI }
 func (m *mockTestAdapter) IsEnabled() bool                { return true }
 func (m *mockTestAdapter) PrepareRequest(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request) (*http.Request, error) {
-	return http.NewRequestWithContext(ctx, http.MethodPost, m.targetURL, nil)
+	return m.PrepareRequestWithEndpoint(ctx, origReq, httpReq, nil)
+}
+func (m *mockTestAdapter) PrepareRequestWithEndpoint(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request, ep *entity.EndpointConfig) (*http.Request, error) {
+	url := m.targetURL
+	if ep != nil && ep.URL != "" {
+		url = ep.URL
+	}
+	return http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 }
 func (m *mockTestAdapter) ExtractUsageFromResponse(body []byte) (*entity.UsageInfo, error) {
 	return nil, nil
@@ -189,7 +196,14 @@ type fullMockAdapter struct {
 func (m *fullMockAdapter) Provider() service.ProviderType { return service.ProviderOpenAI }
 func (m *fullMockAdapter) IsEnabled() bool                { return true }
 func (m *fullMockAdapter) PrepareRequest(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request) (*http.Request, error) {
-	return http.NewRequestWithContext(ctx, http.MethodPost, m.targetURL, nil)
+	return m.PrepareRequestWithEndpoint(ctx, origReq, httpReq, nil)
+}
+func (m *fullMockAdapter) PrepareRequestWithEndpoint(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request, ep *entity.EndpointConfig) (*http.Request, error) {
+	url := m.targetURL
+	if ep != nil && ep.URL != "" {
+		url = ep.URL
+	}
+	return http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 }
 func (m *fullMockAdapter) ExtractUsageFromResponse(body []byte) (*entity.UsageInfo, error) {
 	return &entity.UsageInfo{
@@ -282,6 +296,63 @@ func TestServeForward_Streaming_Success(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200 OK, got %d", rec.Code)
+	}
+}
+
+func TestServeForwardCandidates_429Failover_Success(t *testing.T) {
+	var ep1Calls, ep2Calls atomic.Int32
+
+	// エンドポイント1: 429 Too Many Requests を返す
+	ep1Server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ep1Calls.Add(1)
+		w.Header().Set("Retry-After", "10")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"Rate limit exceeded","code":"rate_limit_exceeded"}}`))
+	}))
+	defer ep1Server.Close()
+
+	// エンドポイント2: 200 OK を返す（フェイルオーバー先）
+	ep2Server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ep2Calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-failover","choices":[{"message":{"role":"assistant","content":"success from ep2"}}]}`))
+	}))
+	defer ep2Server.Close()
+
+	llmProxy := proxy.NewLLMProxy(nil, nil, nil, nil)
+	cb := entity.NewCircuitBreaker()
+
+	candidates := []entity.EndpointConfig{
+		{Name: "ep-1", Provider: "azure", URL: ep1Server.URL, Priority: 1},
+		{Name: "ep-2", Provider: "azure", URL: ep2Server.URL, Priority: 2},
+	}
+
+	resolver := func(p string) service.Adapter {
+		return &fullMockAdapter{}
+	}
+
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	rec := httptest.NewRecorder()
+	reqObj := &entity.ChatCompletionRequest{
+		Model:  "gpt-4o",
+		Stream: false,
+	}
+
+	llmProxy.ServeForwardCandidates(rec, clientReq, nil, reqObj, candidates, resolver, cb)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK after failover, got %d. Body: %s", rec.Code, rec.Body.String())
+	}
+	if ep1Calls.Load() != 1 {
+		t.Errorf("expected 1 call to ep1, got %d", ep1Calls.Load())
+	}
+	if ep2Calls.Load() != 1 {
+		t.Errorf("expected 1 call to ep2, got %d", ep2Calls.Load())
+	}
+	if !cb.IsCoolingDown("ep-1") {
+		t.Errorf("expected ep-1 to be marked as cooling down after 429")
 	}
 }
 

@@ -21,6 +21,9 @@ type dummyAdapter struct {
 func (d *dummyAdapter) Provider() service.ProviderType { return d.provider }
 func (d *dummyAdapter) IsEnabled() bool                { return d.enabled }
 func (d *dummyAdapter) PrepareRequest(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request) (*http.Request, error) {
+	return d.PrepareRequestWithEndpoint(ctx, origReq, httpReq, nil)
+}
+func (d *dummyAdapter) PrepareRequestWithEndpoint(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request, ep *entity.EndpointConfig) (*http.Request, error) {
 	return http.NewRequestWithContext(ctx, http.MethodPost, "http://127.0.0.1:0/chat/completions", nil)
 }
 func (d *dummyAdapter) ExtractUsageFromResponse(body []byte) (*entity.UsageInfo, error) {

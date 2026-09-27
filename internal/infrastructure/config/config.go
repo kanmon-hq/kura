@@ -38,6 +38,7 @@ type Config struct {
 	RedisURL                       string
 	ReconcileIntervalSeconds       int
 	PricingFilePath                string
+	EndpointsFilePath              string
 	UnknownModelPolicy             string // "warn" | "reject"
 	AdminAPIKey                    string
 	AzureOpenAIEndpointJapan       string
@@ -93,6 +94,7 @@ func Load() *Config {
 		RedisURL:                       getEnv("REDIS_URL", ""),
 		ReconcileIntervalSeconds:       getEnvAsInt("RECONCILE_INTERVAL_SECONDS", 0),
 		PricingFilePath:                getEnv("PRICING_FILE", "pricing.json"),
+		EndpointsFilePath:              getEnv("ENDPOINTS_FILE", "endpoints.json"),
 		UnknownModelPolicy:             getEnv("UNKNOWN_MODEL_POLICY", "warn"),
 		AdminAPIKey:                    getEnv("ADMIN_API_KEY", ""),
 		AzureOpenAIEndpointJapan:       getEnv("MICROSOFT_FOUNDRY_ENDPOINT_JAPAN", getEnv("FOUNDRY_ENDPOINT_JAPAN", getEnv("AZURE_OPENAI_ENDPOINT_JAPAN", ""))),

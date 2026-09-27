@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,7 +58,10 @@ func NewLLMProxy(
 	}
 }
 
-// ServeForward は受信リクエストを対象ベンダーへフォワードし、SSE / 非ストリーミングのレスポンスを処理する
+// CandidateAdapterResolver はプロバイダー名から対応する Adapter を解決する関数型
+type CandidateAdapterResolver func(provider string) service.Adapter
+
+// ServeForward は単一 Adapter への互換フォワード
 func (p *LLMProxy) ServeForward(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -65,51 +69,103 @@ func (p *LLMProxy) ServeForward(
 	reqObj *entity.ChatCompletionRequest,
 	adapter service.Adapter,
 ) {
+	providerName := "azure"
+	if adapter != nil {
+		providerName = string(adapter.Provider())
+	}
+	candidates := []entity.EndpointConfig{
+		{
+			Name:     providerName,
+			Provider: providerName,
+		},
+	}
+	resolver := func(p string) service.Adapter {
+		return adapter
+	}
+	p.ServeForwardCandidates(w, r, tenantCtx, reqObj, candidates, resolver, nil)
+}
+
+// ServeForwardCandidates は候補エンドポイントリストを順次試し、429/503/接続断時に自動フェイルオーバーする
+func (p *LLMProxy) ServeForwardCandidates(
+	w http.ResponseWriter,
+	r *http.Request,
+	tenantCtx *entity.TenantContext,
+	reqObj *entity.ChatCompletionRequest,
+	candidates []entity.EndpointConfig,
+	adapterResolver CandidateAdapterResolver,
+	cb *entity.CircuitBreaker,
+) {
 	p.metrics.IncActive()
 	defer p.metrics.DecActive()
 
 	ctx := r.Context()
 	gatewayStartTime := time.Now()
 
-	// 1. Trace Context & Request ID の解決と伝播
 	requestID := r.Header.Get("X-Request-ID")
 	if requestID == "" {
 		requestID = uuid.New().String()
 	}
 	traceParent := r.Header.Get("traceparent")
 
-	// ベンダー用リクエストの準備
-	targetReq, err := adapter.PrepareRequest(ctx, reqObj, r)
-	if err != nil {
-		sendError(w, http.StatusBadRequest, entity.ErrorTypeInvalidRequest, err.Error(), "")
-		return
-	}
-	if targetReq == nil {
-		sendError(w, http.StatusInternalServerError, entity.ErrorTypeInternalError, "adapter prepared nil request", "")
+	if len(candidates) == 0 {
+		sendError(w, http.StatusBadRequest, entity.ErrorTypeInvalidRequest, "No available upstream endpoints found for model", "")
 		return
 	}
 
-	// アップストリームへトレース情報を伝播
-	targetReq.Header.Set("X-Request-ID", requestID)
-	if traceParent != "" {
-		targetReq.Header.Set("traceparent", traceParent)
+	for i, cand := range candidates {
+		adapter := adapterResolver(cand.Provider)
+		if adapter == nil || !adapter.IsEnabled() {
+			continue
+		}
+
+		// リクエストオブジェクトのディープコピー（モデル名書き換えの汚染防止）
+		reqCopy := *reqObj
+		if reqObj.ExtraFields != nil {
+			reqCopy.ExtraFields = make(map[string]any, len(reqObj.ExtraFields))
+			for k, v := range reqObj.ExtraFields {
+				reqCopy.ExtraFields[k] = v
+			}
+		}
+
+		targetReq, err := adapter.PrepareRequestWithEndpoint(ctx, &reqCopy, r, &cand)
+		if err != nil {
+			log.Printf("[WARN] Failed to prepare request for candidate %s: %v", cand.Name, err)
+			continue
+		}
+		if targetReq == nil {
+			continue
+		}
+
+		targetReq.Header.Set("X-Request-ID", requestID)
+		if traceParent != "" {
+			targetReq.Header.Set("traceparent", traceParent)
+		}
+
+		endpointID := entity.EndpointIdentifier(&cand)
+		log.Printf("[DEBUG] Forwarding to candidate [%d/%d] name=%s provider=%s url=%s (RequestID: %s)",
+			i+1, len(candidates), cand.Name, cand.Provider, targetReq.URL.String(), requestID)
+
+		// 試行実行
+		var retryNext bool
+		if reqObj.Stream {
+			retryNext = p.tryStreaming(w, r, targetReq, tenantCtx, &reqCopy, adapter, gatewayStartTime, requestID, &cand, cb, i < len(candidates)-1)
+		} else {
+			retryNext = p.tryNonStreaming(w, r, targetReq, tenantCtx, &reqCopy, adapter, gatewayStartTime, requestID, &cand, cb, i < len(candidates)-1)
+		}
+
+		if !retryNext {
+			return // 成功またはクライアント返却済み
+		}
+
+		log.Printf("[WARN] [FAILOVER] Candidate %s throttled or failed. Failing over to next candidate (RequestID: %s)",
+			endpointID, requestID)
 	}
 
-	// 転送先 URL のログ出力 (デバッグ用)
-	log.Printf("[DEBUG] Forwarding request to vendor: %s (Method: %s, RequestID: %s)\n",
-		targetReq.URL.String(), targetReq.Method, requestID)
-
-	// ストリーミング処理
-	if reqObj.Stream {
-		p.handleStreaming(w, r, targetReq, tenantCtx, reqObj, adapter, gatewayStartTime, requestID)
-		return
-	}
-
-	// 非ストリーミング処理
-	p.handleNonStreaming(w, r, targetReq, tenantCtx, reqObj, adapter, gatewayStartTime, requestID)
+	// 全候補がスキップされた場合
+	sendError(w, http.StatusServiceUnavailable, entity.ErrorTypeVendorError, "All upstream candidates failed or are unavailable", "")
 }
 
-func (p *LLMProxy) handleStreaming(
+func (p *LLMProxy) tryStreaming(
 	w http.ResponseWriter,
 	r *http.Request,
 	targetReq *http.Request,
@@ -118,20 +174,21 @@ func (p *LLMProxy) handleStreaming(
 	adapter service.Adapter,
 	gatewayStartTime time.Time,
 	requestID string,
-) {
+	cand *entity.EndpointConfig,
+	cb *entity.CircuitBreaker,
+	hasNext bool,
+) bool {
 	// 即時フラッシャーの取得
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		sendError(w, http.StatusInternalServerError, entity.ErrorTypeInternalError, "Streaming not supported by server", "")
-		return
+		return false
 	}
 
-	// クライアント切断と連動するキャンセル可能コンテキスト
 	clientCtx := r.Context()
 	streamCtx, cancelStream := context.WithCancel(clientCtx)
 	defer cancelStream()
 
-	// アップストリーム用リクエストに streamCtx を紐付け
 	targetReq = targetReq.WithContext(streamCtx)
 
 	vendorStartTime := time.Now()
@@ -139,14 +196,40 @@ func (p *LLMProxy) handleStreaming(
 	if err != nil {
 		if errors.Is(streamCtx.Err(), context.Canceled) {
 			log.Printf("[INFO] Client canceled streaming before response headers received. RequestID: %s", requestID)
-			return
+			return false
 		}
-		log.Printf("[ERROR] Vendor connection error (RequestID: %s): %v", requestID, err)
+		log.Printf("[ERROR] Vendor connection error for %s (RequestID: %s): %v", cand.Name, requestID, err)
+		if hasNext {
+			if cb != nil {
+				cb.MarkCooldown(entity.EndpointIdentifier(cand), 15*time.Second)
+			}
+			return true // 次の候補へフェイルオーバー
+		}
 		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, "Vendor connection error", "")
-		return
+		return false
 	}
 	defer resp.Body.Close()
 
+	// 429 / 503 / 504 の場合はフェイルオーバー判定
+	if isThrottledOrUnavailable(resp.StatusCode) {
+		cooldown := parseRetryAfter(resp.Header.Get("Retry-After"))
+		if cb != nil {
+			cb.MarkCooldown(entity.EndpointIdentifier(cand), cooldown)
+		}
+		if hasNext {
+			return true // 次の候補へフェイルオーバー
+		}
+		p.handleVendorError(w, resp)
+		return false
+	}
+
+	// 4xx / 5xx (フェイルオーバー対象外のエラー: 400 Bad Request, 401 Unauthorized 等)
+	if resp.StatusCode >= 400 {
+		p.handleVendorError(w, resp)
+		return false
+	}
+
+	// 200 OK: ストリーム送出開始（これ以降はクライアントへ送信中のためフェイルオーバー不可）
 	// クライアント切断時にアップストリームの resp.Body を即座にクローズしてブロッキング読み込みを強制解除する
 	stopMonitor := make(chan struct{})
 	defer close(stopMonitor)
@@ -158,13 +241,6 @@ func (p *LLMProxy) handleStreaming(
 		}
 	}()
 
-	// エラーレスポンス (4xx/5xx) のハンドリング
-	if resp.StatusCode >= 400 {
-		p.handleVendorError(w, resp)
-		return
-	}
-
-	// 仕様要件: X-Accel-Buffering: no および Cache-Control: no-cache を強制付与
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -203,7 +279,7 @@ func (p *LLMProxy) handleStreaming(
 				finalUsage = usage
 			}
 
-			// チャンクをクライアントへ即時転送（クライアント切断時は即時キャンセル）
+			// チャンクをクライアントへ即時転送
 			if _, writeErr := w.Write(line); writeErr != nil {
 				log.Printf("[INFO] Client connection lost during stream write (RequestID: %s): %v", requestID, writeErr)
 				clientDisconnected = true
@@ -234,7 +310,6 @@ func (p *LLMProxy) handleStreaming(
 		log.Printf("[INFO] Client disconnected during streaming. Upstream canceled -> RequestID: %s, Duration: %dms\n",
 			requestID, totalDuration.Milliseconds())
 	} else {
-		// オブザーバビリティ ログ出力
 		log.Printf("[OBSERVABILITY] Streaming Finished -> RequestID: %s, Total: %dms, Vendor: %dms, Gateway: %dms, TTFT: %dms\n",
 			requestID, totalDuration.Milliseconds(), vendorDuration.Milliseconds(), gatewayLatencyMs, ttftMs)
 	}
@@ -248,7 +323,6 @@ func (p *LLMProxy) handleStreaming(
 		log.Printf("[WARN] No usage information returned from vendor for streaming request %s", requestID)
 	}
 
-	// クレジット・費用計算 & 集計（途中で切断されてもトークン情報が取れていれば計上）
 	var cost float64
 	if totalTokens > 0 {
 		engine := p.pricingEngine
@@ -259,7 +333,6 @@ func (p *LLMProxy) handleStreaming(
 		p.recordUsage(tenantCtx, reqObj.Model, promptTokens, completionTokens, totalTokens, cost)
 	}
 
-	// Prometheus メトリクス記録
 	status := http.StatusOK
 	if clientDisconnected {
 		status = 499
@@ -270,9 +343,10 @@ func (p *LLMProxy) handleStreaming(
 	}
 	p.metrics.RecordRequest(reqObj.Model, true, status, totalDuration, serviceID)
 	p.metrics.RecordTokens(reqObj.Model, promptTokens, completionTokens, totalTokens, cost, serviceID)
+	return false
 }
 
-func (p *LLMProxy) handleNonStreaming(
+func (p *LLMProxy) tryNonStreaming(
 	w http.ResponseWriter,
 	r *http.Request,
 	targetReq *http.Request,
@@ -281,7 +355,10 @@ func (p *LLMProxy) handleNonStreaming(
 	adapter service.Adapter,
 	gatewayStartTime time.Time,
 	requestID string,
-) {
+	cand *entity.EndpointConfig,
+	cb *entity.CircuitBreaker,
+	hasNext bool,
+) bool {
 	clientCtx := r.Context()
 	reqCtx, cancelReq := context.WithCancel(clientCtx)
 	defer cancelReq()
@@ -293,15 +370,31 @@ func (p *LLMProxy) handleNonStreaming(
 	if err != nil {
 		if errors.Is(reqCtx.Err(), context.Canceled) {
 			log.Printf("[INFO] Client canceled non-streaming request before response headers received. RequestID: %s", requestID)
-			return
+			return false
 		}
-		log.Printf("[ERROR] Vendor connection error (RequestID: %s): %v", requestID, err)
+		log.Printf("[ERROR] Vendor connection error for %s (RequestID: %s): %v", cand.Name, requestID, err)
+		if hasNext {
+			if cb != nil {
+				cb.MarkCooldown(entity.EndpointIdentifier(cand), 15*time.Second)
+			}
+			return true // 次の候補へフェイルオーバー
+		}
 		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, "Vendor connection error", "")
-		return
+		return false
 	}
 	defer resp.Body.Close()
 
-	// 読み込み監視
+	// 429 / 503 / 504 の場合はフェイルオーバー判定
+	if isThrottledOrUnavailable(resp.StatusCode) {
+		cooldown := parseRetryAfter(resp.Header.Get("Retry-After"))
+		if cb != nil {
+			cb.MarkCooldown(entity.EndpointIdentifier(cand), cooldown)
+		}
+		if hasNext {
+			return true // 次の候補へフェイルオーバー
+		}
+	}
+
 	stopMonitor := make(chan struct{})
 	defer close(stopMonitor)
 	go func() {
@@ -316,10 +409,10 @@ func (p *LLMProxy) handleNonStreaming(
 	if err != nil {
 		if errors.Is(reqCtx.Err(), context.Canceled) {
 			log.Printf("[INFO] Client canceled non-streaming request while reading body. RequestID: %s", requestID)
-			return
+			return false
 		}
 		sendError(w, http.StatusInternalServerError, entity.ErrorTypeInternalError, "Failed to read vendor response", "")
-		return
+		return false
 	}
 
 	vendorDuration := time.Since(vendorStartTime)
@@ -332,7 +425,7 @@ func (p *LLMProxy) handleNonStreaming(
 	// エラーハンドリング (4xx/5xx)
 	if resp.StatusCode >= 400 {
 		p.handleVendorErrorWithBody(w, resp.StatusCode, respBody)
-		return
+		return false
 	}
 
 	var promptTokens, completionTokens, totalTokens int64
@@ -344,7 +437,6 @@ func (p *LLMProxy) handleNonStreaming(
 		log.Printf("[WARN] No usage information returned from vendor for non-streaming request %s", requestID)
 	}
 
-	// クレジット・費用計算
 	var cost float64
 	if totalTokens > 0 {
 		engine := p.pricingEngine
@@ -354,14 +446,11 @@ func (p *LLMProxy) handleNonStreaming(
 		cost, _ = engine.CalculateCost(reqObj.Model, promptTokens, completionTokens, 0, 0)
 	}
 
-	// 利用量集計 (CostStore & UsageStore)
 	p.recordUsage(tenantCtx, reqObj.Model, promptTokens, completionTokens, totalTokens, cost)
 
-	// オブザーバビリティ ログ出力
 	log.Printf("[OBSERVABILITY] Non-Streaming Finished -> RequestID: %s, Total: %dms, Vendor: %dms, Gateway: %dms, Tokens: %d, Cost: $%.6f\n",
 		requestID, totalDuration.Milliseconds(), vendorDuration.Milliseconds(), gatewayLatencyMs, totalTokens, cost)
 
-	// レスポンスの正規化（Claude/Gemini -> OpenAI 互換形式）
 	normalizedBody, err := adapter.NormalizeResponse(resp.StatusCode, respBody)
 	if err != nil {
 		normalizedBody = respBody
@@ -371,16 +460,32 @@ func (p *LLMProxy) handleNonStreaming(
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(resp.StatusCode)
 	if _, err := w.Write(normalizedBody); err != nil {
-		log.Printf("[INFO] Failed to write response to client (client likely disconnected). RequestID: %s, Err: %v", requestID, err)
+		log.Printf("[INFO] Failed to write response to client. RequestID: %s, Err: %v", requestID, err)
 	}
 
-	// Prometheus メトリクス記録
 	serviceID := "unknown"
 	if tenantCtx != nil && tenantCtx.ServiceID != "" {
 		serviceID = tenantCtx.ServiceID
 	}
 	p.metrics.RecordRequest(reqObj.Model, false, resp.StatusCode, totalDuration, serviceID)
 	p.metrics.RecordTokens(reqObj.Model, promptTokens, completionTokens, totalTokens, cost, serviceID)
+	return false
+}
+
+func isThrottledOrUnavailable(statusCode int) bool {
+	return statusCode == http.StatusTooManyRequests ||
+		statusCode == http.StatusServiceUnavailable ||
+		statusCode == http.StatusGatewayTimeout
+}
+
+func parseRetryAfter(header string) time.Duration {
+	if header == "" {
+		return 20 * time.Second // デフォルト冷却時間 20 秒
+	}
+	if seconds, err := strconv.Atoi(header); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	return 20 * time.Second
 }
 
 func (p *LLMProxy) recordUsage(

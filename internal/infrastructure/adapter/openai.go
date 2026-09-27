@@ -31,54 +31,78 @@ func (a *openAIAdapter) IsEnabled() bool {
 }
 
 func (a *openAIAdapter) PrepareRequest(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request) (*http.Request, error) {
-	if !a.IsEnabled() {
+	return a.PrepareRequestWithEndpoint(ctx, origReq, httpReq, nil)
+}
+
+func (a *openAIAdapter) PrepareRequestWithEndpoint(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request, ep *entity.EndpointConfig) (*http.Request, error) {
+	baseEndpoint := a.cfg.AzureOpenAIEndpoint
+	apiKey := a.cfg.AzureOpenAIAPIKey
+	apiVersion := a.cfg.AzureAPIVersion
+	defaultDeployment := a.cfg.AzureDefaultDeployment
+
+	if ep != nil {
+		if ep.URL != "" {
+			baseEndpoint = ep.URL
+		}
+		if key := ep.GetResolvedKey(); key != "" {
+			apiKey = key
+		}
+		if ep.APIVersion != "" {
+			apiVersion = ep.APIVersion
+		}
+		if ep.Deployment != "" {
+			defaultDeployment = ep.Deployment
+		}
+	}
+
+	if baseEndpoint == "" || apiKey == "" {
 		return nil, fmt.Errorf("azure openai / AI foundry is not configured (missing endpoint or API key)")
 	}
 
-	// デプロイメント名の解決 (azure/ プレフィックス除去、未指定時は環境変数のデフォルト)
+	// デプロイメント名の解決 (azure/ プレフィックス除去、未指定時はデフォルト)
 	deploymentID := strings.TrimPrefix(origReq.Model, "azure/")
-	if deploymentID == "" && a.cfg.AzureDefaultDeployment != "" {
-		deploymentID = a.cfg.AzureDefaultDeployment
+	if deploymentID == "" && defaultDeployment != "" {
+		deploymentID = defaultDeployment
 	}
 	if deploymentID == "" {
 		deploymentID = "gpt-4o"
 	}
 
-	baseEndpoint := strings.TrimRight(a.cfg.AzureOpenAIEndpoint, "/")
+	cleanBase := strings.TrimRight(baseEndpoint, "/")
 
-	// データレジデンシー: X-Data-Residency: japan の場合は日本東リージョンへ切り替え
-	if strings.EqualFold(httpReq.Header.Get("X-Data-Residency"), "japan") && a.cfg.AzureOpenAIEndpointJapan != "" {
-		baseEndpoint = strings.TrimRight(a.cfg.AzureOpenAIEndpointJapan, "/")
+	// データレジデンシー: X-Data-Residency: japan かつ ep 未指定の場合は日本東リージョンへ切り替え
+	if ep == nil && strings.EqualFold(httpReq.Header.Get("X-Data-Residency"), "japan") && a.cfg.AzureOpenAIEndpointJapan != "" {
+		cleanBase = strings.TrimRight(a.cfg.AzureOpenAIEndpointJapan, "/")
 	}
 
 	var targetURL string
-	if strings.HasSuffix(baseEndpoint, "/openai/v1") || strings.HasSuffix(baseEndpoint, "/v1") {
+	if strings.HasSuffix(cleanBase, "/openai/v1") || strings.HasSuffix(cleanBase, "/v1") {
 		// Azure OpenAI v1 (OpenAI 完全互換エンドポイント): https://<resource>.openai.azure.com/openai/v1/chat/completions
-		targetURL = fmt.Sprintf("%s/chat/completions", baseEndpoint)
-	} else if strings.Contains(baseEndpoint, "models.ai.azure.com") || strings.Contains(baseEndpoint, "services.ai.azure.com") {
+		targetURL = fmt.Sprintf("%s/chat/completions", cleanBase)
+	} else if strings.Contains(cleanBase, "models.ai.azure.com") || strings.Contains(cleanBase, "services.ai.azure.com") {
 		// Azure AI Foundry (Model Catalog / Serverless API)
-		if strings.HasSuffix(baseEndpoint, "/chat/completions") {
-			targetURL = baseEndpoint
-		} else if strings.Contains(baseEndpoint, "services.ai.azure.com") {
-			targetURL = fmt.Sprintf("%s/chat/completions?api-version=%s", baseEndpoint, a.cfg.AzureAPIVersion)
+		if strings.HasSuffix(cleanBase, "/chat/completions") {
+			targetURL = cleanBase
+		} else if strings.Contains(cleanBase, "services.ai.azure.com") {
+			targetURL = fmt.Sprintf("%s/chat/completions?api-version=%s", cleanBase, apiVersion)
 		} else {
-			targetURL = fmt.Sprintf("%s/v1/chat/completions", baseEndpoint)
+			targetURL = fmt.Sprintf("%s/v1/chat/completions", cleanBase)
 		}
-	} else if strings.Contains(baseEndpoint, "/openai/deployments/") {
+	} else if strings.Contains(cleanBase, "/openai/deployments/") {
 		// 既に完全なデプロイメントパスが指定されている場合
-		if !strings.Contains(baseEndpoint, "api-version=") {
-			targetURL = fmt.Sprintf("%s?api-version=%s", baseEndpoint, a.cfg.AzureAPIVersion)
+		if !strings.Contains(cleanBase, "api-version=") {
+			targetURL = fmt.Sprintf("%s?api-version=%s", cleanBase, apiVersion)
 		} else {
-			targetURL = baseEndpoint
+			targetURL = cleanBase
 		}
-	} else if strings.HasSuffix(baseEndpoint, "/chat/completions") {
+	} else if strings.HasSuffix(cleanBase, "/chat/completions") {
 		// 直接チャット補完パスが指定されている場合
-		targetURL = baseEndpoint
+		targetURL = cleanBase
 	} else {
 		// 従来の Azure OpenAI Service: https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions?api-version={api-version}
-		cleanBase := strings.TrimSuffix(baseEndpoint, "/openai")
+		cleanRoot := strings.TrimSuffix(cleanBase, "/openai")
 		targetURL = fmt.Sprintf("%s/openai/deployments/%s/chat/completions?api-version=%s",
-			cleanBase, deploymentID, a.cfg.AzureAPIVersion)
+			cleanRoot, deploymentID, apiVersion)
 	}
 
 	// リクエストボディ内の model 名を Azure 向けに正規化
@@ -107,8 +131,8 @@ func (a *openAIAdapter) PrepareRequest(ctx context.Context, origReq *entity.Chat
 
 	newReq.Header.Set("Content-Type", "application/json")
 	// Azure OpenAI / Azure AI Foundry の双方と互換性を持つようヘッダーを設定
-	newReq.Header.Set("api-key", a.cfg.AzureOpenAIAPIKey)
-	newReq.Header.Set("Authorization", "Bearer "+a.cfg.AzureOpenAIAPIKey)
+	newReq.Header.Set("api-key", apiKey)
+	newReq.Header.Set("Authorization", "Bearer "+apiKey)
 
 	// クライアントが送信した X- などのカスタムヘッダーを透過
 	for k, v := range httpReq.Header {

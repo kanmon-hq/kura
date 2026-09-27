@@ -31,7 +31,34 @@ func (a *bedrockAdapter) IsEnabled() bool {
 }
 
 func (a *bedrockAdapter) PrepareRequest(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request) (*http.Request, error) {
-	if !a.IsEnabled() {
+	return a.PrepareRequestWithEndpoint(ctx, origReq, httpReq, nil)
+}
+
+func (a *bedrockAdapter) PrepareRequestWithEndpoint(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request, ep *entity.EndpointConfig) (*http.Request, error) {
+	apiKey := a.cfg.BedrockAPIKey
+	region := a.cfg.BedrockRegion
+	baseEndpoint := a.cfg.BedrockEndpoint
+
+	if ep != nil {
+		if key := ep.GetResolvedKey(); key != "" {
+			apiKey = key
+		}
+		if ep.Region != "" {
+			region = ep.Region
+		}
+		if ep.URL != "" {
+			baseEndpoint = ep.URL
+		}
+	}
+
+	if region == "" {
+		region = a.cfg.AWSRegion
+	}
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	if apiKey == "" && baseEndpoint == "" {
 		return nil, fmt.Errorf("amazon bedrock (bedrock-mantle) is not configured (missing API key or endpoint)")
 	}
 
@@ -41,26 +68,18 @@ func (a *bedrockAdapter) PrepareRequest(ctx context.Context, origReq *entity.Cha
 	}
 	origReq.Model = modelID
 
-	region := a.cfg.BedrockRegion
-	if region == "" {
-		region = a.cfg.AWSRegion
-	}
-	if region == "" {
-		region = "us-east-1"
-	}
-
-	baseEndpoint := strings.TrimRight(a.cfg.BedrockEndpoint, "/")
-	if baseEndpoint == "" {
-		baseEndpoint = fmt.Sprintf("https://bedrock-mantle.%s.api.aws", region)
+	cleanBase := strings.TrimRight(baseEndpoint, "/")
+	if cleanBase == "" {
+		cleanBase = fmt.Sprintf("https://bedrock-mantle.%s.api.aws", region)
 	}
 
 	var targetURL string
-	if strings.HasSuffix(baseEndpoint, "/chat/completions") {
-		targetURL = baseEndpoint
-	} else if strings.HasSuffix(baseEndpoint, "/v1") {
-		targetURL = fmt.Sprintf("%s/chat/completions", baseEndpoint)
+	if strings.HasSuffix(cleanBase, "/chat/completions") {
+		targetURL = cleanBase
+	} else if strings.HasSuffix(cleanBase, "/v1") {
+		targetURL = fmt.Sprintf("%s/chat/completions", cleanBase)
 	} else {
-		targetURL = fmt.Sprintf("%s/v1/chat/completions", baseEndpoint)
+		targetURL = fmt.Sprintf("%s/v1/chat/completions", cleanBase)
 	}
 
 	// ストリーミング時に usage 情報を強制取得
@@ -84,9 +103,9 @@ func (a *bedrockAdapter) PrepareRequest(ctx context.Context, origReq *entity.Cha
 	}
 
 	newReq.Header.Set("Content-Type", "application/json")
-	if a.cfg.BedrockAPIKey != "" {
-		newReq.Header.Set("Authorization", "Bearer "+a.cfg.BedrockAPIKey)
-		newReq.Header.Set("x-api-key", a.cfg.BedrockAPIKey)
+	if apiKey != "" {
+		newReq.Header.Set("Authorization", "Bearer "+apiKey)
+		newReq.Header.Set("x-api-key", apiKey)
 	}
 
 	// クライアントのカスタムヘッダーを透過

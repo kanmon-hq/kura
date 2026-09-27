@@ -30,6 +30,9 @@ type Adapter interface {
 	// ターゲットURL、HTTPメソッド、ベンダー固有ヘッダー、ボディの変換を行う
 	PrepareRequest(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request) (*http.Request, error)
 
+	// PrepareRequestWithEndpoint は指定されたエンドポイント設定を用いてリクエストを変換する
+	PrepareRequestWithEndpoint(ctx context.Context, origReq *entity.ChatCompletionRequest, httpReq *http.Request, ep *entity.EndpointConfig) (*http.Request, error)
+
 	// ExtractUsageFromResponse は非ストリーミングのレスポンスボディからトークン利用量を抽出する
 	ExtractUsageFromResponse(body []byte) (*entity.UsageInfo, error)
 

@@ -150,3 +150,75 @@ Kura では、大量のリクエストおよび長時間の SSE ストリーミ�
 # 全ホットパスのベンチマーク実行
 go test -bench=. -benchmem -run=^# ./internal/...
 ```
+
+---
+
+## 6. 推奨構築構成 (Recommended Architectures)
+
+本番・社内共通基盤として Kura を運用する際の推奨構成モデル。
+
+```mermaid
+flowchart TD
+    subgraph Clients["利用側アプリケーション"]
+        App1["一般社内サービス<br/>(OpenAI SDK)"]
+        App2["機密・個人情報処理サービス<br/>(X-Data-Residency: japan)"]
+    end
+
+    subgraph GatewayLayer["Kura ゲートウェイ層 (ECS / Cloud Run / K8s)"]
+        Kura["Kura (API Gateway)"]
+        CB["サーキットブレーカー<br/>(429 冷却 & 透過フェイルオーバー)"]
+    end
+
+    subgraph StorageLayer["ストレージ層"]
+        CostStore["CostStore (Hot: 残高)<br/>Valkey / Redis / NoSQL"]
+        UsageStore["UsageStore (Cold: 監査ログ)<br/>DynamoDB / Cosmos DB / Firestore"]
+    end
+
+    subgraph ProviderLayer["LLM プロバイダー層 (実エンドポイント)"]
+        subgraph Azure["Azure OpenAI"]
+            AzGlobal1["① Global Standard (Sub-1)<br/>gpt-4o, gpt-4o-mini"]
+            AzGlobal2["② Global Standard (Sub-2 / 予備)<br/>gpt-4o (429 フェイルオーバー用)"]
+            AzJapan["③ Japan East (国内専用)<br/>gpt-4o, gpt-4o-mini"]
+        end
+        subgraph AWS["AWS Bedrock"]
+            Bedrock["④ Bedrock (us-east-1)<br/>claude-3-5-sonnet, haiku"]
+        end
+        subgraph GCP["Google Cloud"]
+            Gemini["⑤ Gemini API<br/>gemini-1.5-pro, flash"]
+        end
+    end
+
+    App1 --> Kura
+    App2 -->|X-Data-Residency: japan| Kura
+
+    Kura <--> CostStore
+    Kura --> UsageStore
+
+    Kura -->|通常 GPT| AzGlobal1
+    AzGlobal1 -.->|429 発生時| AzGlobal2
+    Kura -->|国内指定| AzJapan
+    Kura -->|Claude| Bedrock
+    Kura -->|Gemini| Gemini
+```
+
+### 6.1 LLM エンドポイント構成（プロバイダー層）
+
+| No | 用途 | プロバイダー / リージョン | 担当モデル | 役割・特徴 |
+| :---: | :--- | :--- | :--- | :--- |
+| **1** | **GPT 主系** | Azure OpenAI (Global Standard - Sub A) | `gpt-4o`, `gpt-4o-mini` | 平時の大半のトラフィックを処理 |
+| **2** | **GPT 副系** | Azure OpenAI (Global Standard - Sub B) | `gpt-4o` | 主系が 429 になった時の**自動フェイルオーバー先** |
+| **3** | **国内専用** | Azure OpenAI (Japan East) | `gpt-4o`, `gpt-4o-mini` | `X-Data-Residency: japan` 指定時のみ使用 |
+| **4** | **Claude 系** | AWS Bedrock (`us-east-1` または `ap-northeast-1`) | `claude-3-5-sonnet`, `haiku` | 高度なコーディング・長文解析 |
+| **5** | **Gemini 系** | Google Gemini (Official) | `gemini-1.5-flash`, `pro` | 超高速・マルチモーダル・低コスト |
+
+### 6.2 ストレージ選定方針
+
+- **小規模・PoC（単一コンテナ運用）**:
+  - `COST_STORE=sqlite` / `USAGE_STORE=sqlite`（追加インフラ不要）
+- **AWS 本番環境（マルチコンテナ・水平スケール）**:
+  - `COST_STORE=valkey`（ElastiCache for Valkey / Redis） + `USAGE_STORE=dynamodb`
+- **Azure 本番環境（マルチコンテナ・水平スケール）**:
+  - `COST_STORE=cosmosdb` + `USAGE_STORE=cosmosdb`
+- **Google Cloud 本番環境（マルチコンテナ・水平スケール）**:
+  - `COST_STORE=firestore` + `USAGE_STORE=firestore`
+
