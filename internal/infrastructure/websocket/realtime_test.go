@@ -318,7 +318,7 @@ func TestRealtimeProxy_ServeWebSocket_UpstreamDialError(t *testing.T) {
 		if mt != websocket.TextMessage {
 			t.Errorf("Expected text message type, got %v", mt)
 		}
-		if !strings.Contains(string(receivedMsg), "Failed to connect to upstream") {
+		if !strings.Contains(string(receivedMsg), "Vendor connection error") {
 			t.Errorf("Expected upstream dial error message, got: %s", string(receivedMsg))
 		}
 	}

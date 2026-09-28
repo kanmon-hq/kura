@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -43,10 +44,11 @@ func (p *RealtimeProxy) ServeWebSocket(w http.ResponseWriter, r *http.Request, t
 
 	targetURL, headers, err := p.resolveUpstream(r)
 	if err != nil {
+		log.Printf("[ERROR] Realtime resolveUpstream failed: %v", err)
 		_ = clientConn.WriteJSON(entity.NewStandardError(
 			http.StatusBadRequest,
 			entity.ErrorTypeInvalidRequest,
-			err.Error(),
+			"Invalid request or missing upstream configuration",
 			"",
 		))
 		return
@@ -62,10 +64,11 @@ func (p *RealtimeProxy) ServeWebSocket(w http.ResponseWriter, r *http.Request, t
 		if resp != nil {
 			statusCode = resp.StatusCode
 		}
+		log.Printf("[ERROR] Failed to connect to upstream Realtime WebSocket (%s): %v", targetURL, err)
 		_ = clientConn.WriteJSON(entity.NewStandardError(
 			statusCode,
 			entity.ErrorTypeVendorError,
-			fmt.Sprintf("Failed to connect to upstream Realtime WebSocket (%s): %v", targetURL, err),
+			"Vendor connection error",
 			"",
 		))
 		return

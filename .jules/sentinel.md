@@ -14,3 +14,7 @@
 **Vulnerability:** The reverse proxy was exposing detailed underlying network or vendor errors (such as TLS handshake failures, connection resets, or upstream timeouts) to the API client using `fmt.Sprintf` in the `sendError` function.
 **Learning:** Exposing raw backend errors to the client can leak sensitive internal network topology, configuration details, or upstream dependencies, violating the "fail securely" and "defense in depth" principles.
 **Prevention:** Always log detailed error information internally (including a `RequestID` for traceability) and return a safe, generic error message (e.g., "Vendor connection error") to the end user.
+## 2026-09-28 - Prevent Information Leakage in WebSocket Proxy Errors
+**Vulnerability:** The realtime WebSocket proxy was exposing internal configurations and detailed connection errors to the client by directly writing `err.Error()` and `fmt.Sprintf` messages containing upstream URLs.
+**Learning:** Returning raw, detailed connection or configuration errors to the client can leak sensitive internal topology, server setup details, and missing secrets. This violates the "fail securely" principle and enables information disclosure attacks.
+**Prevention:** Always sanitize proxy errors sent to the client. Log the full details internally (using `log.Printf`) and return a generic string like "Invalid request or missing upstream configuration" or "Vendor connection error".
