@@ -150,7 +150,7 @@ func TestRealtimeProxy_resolveUpstream(t *testing.T) {
 			}
 			req.Header = tt.header
 
-			gotURL, gotHeaders, err := proxy.resolveUpstream(req)
+			gotURL, _, gotHeaders, err := proxy.resolveUpstream(req)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("resolveUpstream() error = %v, wantErr %v", err, tt.wantErr)
