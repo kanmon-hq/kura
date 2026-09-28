@@ -64,7 +64,16 @@ func (p *RealtimeProxy) ServeWebSocket(w http.ResponseWriter, r *http.Request, t
 		if resp != nil {
 			statusCode = resp.StatusCode
 		}
-		log.Printf("[ERROR] Failed to connect to upstream Realtime WebSocket (%s): %v", targetURL, err)
+		safeURL := targetURL
+		if u, parseErr := url.Parse(targetURL); parseErr == nil {
+			q := u.Query()
+			if q.Has("key") {
+				q.Set("key", "***")
+				u.RawQuery = q.Encode()
+				safeURL = u.String()
+			}
+		}
+		log.Printf("[ERROR] Failed to connect to upstream Realtime WebSocket (%s): %v", safeURL, err)
 		_ = clientConn.WriteJSON(entity.NewStandardError(
 			statusCode,
 			entity.ErrorTypeVendorError,
