@@ -14,3 +14,11 @@
 **Vulnerability:** The reverse proxy was exposing detailed underlying network or vendor errors (such as TLS handshake failures, connection resets, or upstream timeouts) to the API client using `fmt.Sprintf` in the `sendError` function.
 **Learning:** Exposing raw backend errors to the client can leak sensitive internal network topology, configuration details, or upstream dependencies, violating the "fail securely" and "defense in depth" principles.
 **Prevention:** Always log detailed error information internally (including a `RequestID` for traceability) and return a safe, generic error message (e.g., "Vendor connection error") to the end user.
+## 2026-09-28 - Secure URL Logging against CodeQL
+**Vulnerability:** Even when selectively redacting a sensitive URL parameter (like `key=***`), static analysis tools (like CodeQL) can still track the data flow from the sensitive original source (`targetURL`) to the sink (`log.Printf`) through string modification, resulting in a false positive or potential missed edge case.
+**Learning:** For defense in depth and to satisfy taint analysis, it is much safer to reconstruct a completely clean URL from non-sensitive parsed components (`u.Scheme + "://" + u.Host + u.Path`) and drop the query string entirely, rather than attempting to mutate the tainted string in place.
+**Prevention:** Avoid modifying tainted strings containing secrets for logging. Instead, explicitly extract and log only the known-safe structural components of the URL.
+## 2026-09-28 - Defend Against Upstream Error Message Reflection
+**Vulnerability:** Even when the original target URL is heavily sanitized from logs, calling `err.Error()` on a connection error (such as from `websocket.Dialer` or `net/http`) may embed the raw dialed URL inside the error string (e.g., `malformed ws or wss URL: wss://...?key=SECRET`). If this error string is then logged, the secret is leaked.
+**Learning:** Underlying library errors can inadvertently reflect sensitive inputs that were passed to them. Logging these errors raw defeats previous sanitization efforts.
+**Prevention:** Explicitly redact known secrets from error message strings (`strings.ReplaceAll(err.Error(), secret, "***")`) before logging them if the secret was passed to the underlying function that failed.

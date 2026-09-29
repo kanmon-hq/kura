@@ -150,7 +150,7 @@ func TestRealtimeProxy_resolveUpstream(t *testing.T) {
 			}
 			req.Header = tt.header
 
-			gotURL, gotHeaders, err := proxy.resolveUpstream(req)
+			gotURL, _, gotHeaders, err := proxy.resolveUpstream(req)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("resolveUpstream() error = %v, wantErr %v", err, tt.wantErr)
@@ -318,7 +318,7 @@ func TestRealtimeProxy_ServeWebSocket_UpstreamDialError(t *testing.T) {
 		if mt != websocket.TextMessage {
 			t.Errorf("Expected text message type, got %v", mt)
 		}
-		if !strings.Contains(string(receivedMsg), "Failed to connect to upstream") {
+		if !strings.Contains(string(receivedMsg), "Vendor connection error") {
 			t.Errorf("Expected upstream dial error message, got: %s", string(receivedMsg))
 		}
 	}
