@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -41,12 +42,13 @@ func (p *RealtimeProxy) ServeWebSocket(w http.ResponseWriter, r *http.Request, t
 	}
 	defer clientConn.Close()
 
-	targetURL, headers, err := p.resolveUpstream(r)
+	targetURL, safeLogURL, headers, err := p.resolveUpstream(r)
 	if err != nil {
+		log.Printf("[ERROR] Realtime resolveUpstream failed: %v", err)
 		_ = clientConn.WriteJSON(entity.NewStandardError(
 			http.StatusBadRequest,
 			entity.ErrorTypeInvalidRequest,
-			err.Error(),
+			"Invalid request or missing upstream configuration",
 			"",
 		))
 		return
@@ -62,10 +64,15 @@ func (p *RealtimeProxy) ServeWebSocket(w http.ResponseWriter, r *http.Request, t
 		if resp != nil {
 			statusCode = resp.StatusCode
 		}
+		errMsg := err.Error()
+		if p.cfg.GeminiAPIKey != "" {
+			errMsg = strings.ReplaceAll(errMsg, p.cfg.GeminiAPIKey, "***")
+		}
+		log.Printf("[ERROR] Failed to connect to upstream Realtime WebSocket (%s): %s", safeLogURL, errMsg)
 		_ = clientConn.WriteJSON(entity.NewStandardError(
 			statusCode,
 			entity.ErrorTypeVendorError,
-			fmt.Sprintf("Failed to connect to upstream Realtime WebSocket (%s): %v", targetURL, err),
+			"Vendor connection error",
 			"",
 		))
 		return
@@ -126,7 +133,7 @@ func (p *RealtimeProxy) ServeWebSocket(w http.ResponseWriter, r *http.Request, t
 }
 
 // resolveUpstream はリクエストパラメータや環境設定からプロバイダーを判定し、接続先 WebSocket URL とヘッダーを構築する
-func (p *RealtimeProxy) resolveUpstream(r *http.Request) (string, http.Header, error) {
+func (p *RealtimeProxy) resolveUpstream(r *http.Request) (string, string, http.Header, error) {
 	q := r.URL.Query()
 	model := strings.TrimSpace(q.Get("model"))
 	provider := strings.ToLower(strings.TrimSpace(q.Get("provider")))
@@ -134,16 +141,17 @@ func (p *RealtimeProxy) resolveUpstream(r *http.Request) (string, http.Header, e
 	// 1. Gemini Multimodal Live API 判定
 	if provider == "gemini" || provider == "google" || strings.HasPrefix(model, "gemini") {
 		if p.cfg.GeminiAPIKey == "" {
-			return "", nil, fmt.Errorf("gemini api key is not configured")
+			return "", "", nil, fmt.Errorf("gemini api key is not configured")
 		}
 		targetURL := fmt.Sprintf("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=%s", p.cfg.GeminiAPIKey)
+		safeLogURL := "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
 		headers := http.Header{}
-		return targetURL, headers, nil
+		return targetURL, safeLogURL, headers, nil
 	}
 
 	// 2. Azure OpenAI Realtime
 	if p.cfg.AzureOpenAIEndpoint == "" || p.cfg.AzureOpenAIAPIKey == "" {
-		return "", nil, fmt.Errorf("azure openai endpoint or api key is not configured")
+		return "", "", nil, fmt.Errorf("azure openai endpoint or api key is not configured")
 	}
 
 	baseEndpoint := strings.TrimRight(p.cfg.AzureOpenAIEndpoint, "/")
@@ -155,7 +163,7 @@ func (p *RealtimeProxy) resolveUpstream(r *http.Request) (string, http.Header, e
 	// URL ホストの抽出 (https://... -> host)
 	u, err := url.Parse(baseEndpoint)
 	if err != nil {
-		return "", nil, fmt.Errorf("invalid azure openai endpoint URL: %w", err)
+		return "", "", nil, fmt.Errorf("invalid azure openai endpoint URL: %w", err)
 	}
 	host := u.Host
 	if host == "" {
@@ -190,9 +198,10 @@ func (p *RealtimeProxy) resolveUpstream(r *http.Request) (string, http.Header, e
 	// Azure Realtime WebSocket URL:
 	// wss://<host>/openai/realtime?api-version=<apiVersion>&deployment=<deployment>
 	targetURL := fmt.Sprintf("%s://%s/openai/realtime?api-version=%s&deployment=%s", scheme, host, apiVersion, deployment)
+	safeLogURL := fmt.Sprintf("%s://%s/openai/realtime", scheme, host)
 
 	headers := http.Header{}
 	headers.Set("api-key", p.cfg.AzureOpenAIAPIKey)
 	headers.Set("OpenAI-Beta", "realtime=v1")
-	return targetURL, headers, nil
+	return targetURL, safeLogURL, headers, nil
 }
