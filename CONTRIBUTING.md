@@ -48,7 +48,7 @@ git clone https://github.com/<your-username>/kura.git
 cd kura
 
 # アップストリームの設定
-git remote add upstream https://github.com/northfieldzz/kura.git
+git remote add upstream https://github.com/kanmon-hq/kura.git
 ```
 
 ### ローカルスタックの起動

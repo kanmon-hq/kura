@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/usecase"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/usecase"
 )
 
 

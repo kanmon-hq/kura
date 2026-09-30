@@ -8,9 +8,9 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
-	"github.com/northfieldzz/kura/internal/usecase"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/infrastructure/metrics"
+	"github.com/kanmon-hq/kura/internal/usecase"
 )
 
 type contextKey string

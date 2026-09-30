@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/northfieldzz/kura/internal/infrastructure/config"
-	"github.com/northfieldzz/kura/internal/infrastructure/store"
+	"github.com/kanmon-hq/kura/internal/infrastructure/config"
+	"github.com/kanmon-hq/kura/internal/infrastructure/store"
 )
 
 func TestInitializeStores_ValidSQLite(t *testing.T) {

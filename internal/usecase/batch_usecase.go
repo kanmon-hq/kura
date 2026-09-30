@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/domain/repository"
-	"github.com/northfieldzz/kura/internal/infrastructure/notifier"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/repository"
+	"github.com/kanmon-hq/kura/internal/infrastructure/notifier"
 )
 
 // BatchUseCase は定期バッチ処理および補正処理のビジネスロジックを担うインターフェース

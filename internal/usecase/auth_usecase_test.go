@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
 )
 
 type mockQuotaRepo struct {

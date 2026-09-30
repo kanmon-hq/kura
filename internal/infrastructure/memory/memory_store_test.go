@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/infrastructure/memory"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/infrastructure/memory"
 )
 
 func TestMemoryStore_AllOperations(t *testing.T) {

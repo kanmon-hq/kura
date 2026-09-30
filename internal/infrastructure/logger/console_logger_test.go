@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/infrastructure/logger"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/infrastructure/logger"
 )
 
 func TestConsoleLogger_LogAndClose(t *testing.T) {

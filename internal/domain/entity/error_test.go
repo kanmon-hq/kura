@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
 )
 
 func TestStandardErrorResponse_Error(t *testing.T) {

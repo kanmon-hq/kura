@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/infrastructure/config"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/infrastructure/config"
 )
 
 func TestGeminiAdapter_PrepareRequest(t *testing.T) {

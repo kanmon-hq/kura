@@ -3,7 +3,7 @@ package dynamodb
 import (
 	"context"
 	"testing"
-	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
 )
 
 func TestMemoryQuotaRepository_GetAndIncrementTenantUsage(t *testing.T) {

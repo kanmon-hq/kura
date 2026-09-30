@@ -2,7 +2,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![Huma v2](https://img.shields.io/badge/Huma-v2.39+-8A2BE2.svg)](https://huma.rocks/)
-[![Storage](https://img.shields.io/badge/Storage-SQLite%20%7C%20DynamoDB%20%7C%20PostgreSQL%20%7C%20Valkey-4053D6.svg)](https://github.com/northfieldzz/kura)
+[![Storage](https://img.shields.io/badge/Storage-SQLite%20%7C%20DynamoDB%20%7C%20PostgreSQL%20%7C%20Valkey-4053D6.svg)](https://github.com/kanmon-hq/kura)
 [![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C.svg?logo=prometheus)](https://prometheus.io/)
 [![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1-6BA539.svg?logo=openapiinitiative)](https://spec.openapis.org/oas/v3.1.0)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker)](https://www.docker.com/)
@@ -454,7 +454,7 @@ Kura は起動時に以下の環境変数を読み込んで動作する。
 
 ### 1. リポジトリのクローン & 設定準備
 ```bash
-git clone https://github.com/northfieldzz/kura.git
+git clone https://github.com/kanmon-hq/kura.git
 cd kura
 cp .env.example .env  # 必要に応じてシークレットや環境変数を編集
 ```
@@ -484,14 +484,14 @@ docker compose --profile monitor up -d --build
 ```bash
 docker run -d -p 8080:8080 \
   -e GATEWAY_SHARED_SECRET="a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0" \
-  -v kura-data:/data ghcr.io/northfieldzz/kura:latest
+  -v kura-data:/data ghcr.io/kanmon-hq/kura:latest
 ```
 
 **開発・検証モード (シークレット検証をバイパス)**:
 ```bash
 docker run -d -p 8080:8080 \
   -e INSECURE_NO_GATEWAY_AUTH=true \
-  -v kura-data:/data ghcr.io/northfieldzz/kura:latest
+  -v kura-data:/data ghcr.io/kanmon-hq/kura:latest
 ```
 
 ### 4. Go 単体での起動

@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
-	"github.com/northfieldzz/kura/internal/infrastructure/proxy"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/infrastructure/metrics"
+	"github.com/kanmon-hq/kura/internal/infrastructure/proxy"
 )
 
 func BenchmarkStreamingProxy_ServeForward(b *testing.B) {

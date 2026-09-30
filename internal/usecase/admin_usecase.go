@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/domain/repository"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/repository"
 )
 
 // SetLimitRequest はサービス上限設定リクエスト

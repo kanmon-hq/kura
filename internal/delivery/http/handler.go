@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/domain/repository"
-	"github.com/northfieldzz/kura/internal/infrastructure/websocket"
-	"github.com/northfieldzz/kura/internal/usecase"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/repository"
+	"github.com/kanmon-hq/kura/internal/infrastructure/websocket"
+	"github.com/kanmon-hq/kura/internal/usecase"
 )
 
 // Handler は Gateway の HTTP リクエストハンドラ群

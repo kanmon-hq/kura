@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/northfieldzz/kura/internal/infrastructure/firestore"
+	"github.com/kanmon-hq/kura/internal/infrastructure/firestore"
 )
 
 func TestNewFirestoreStore_ContextTimeout(t *testing.T) {

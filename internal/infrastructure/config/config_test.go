@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/northfieldzz/kura/internal/infrastructure/config"
+	"github.com/kanmon-hq/kura/internal/infrastructure/config"
 )
 
 func TestValidateGatewayAuth_InsecureFlag(t *testing.T) {

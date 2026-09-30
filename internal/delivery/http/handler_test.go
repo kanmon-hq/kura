@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	delivery "github.com/northfieldzz/kura/internal/delivery/http"
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/usecase"
+	delivery "github.com/kanmon-hq/kura/internal/delivery/http"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/usecase"
 )
 
 type mockQuotaRepoForHealth struct {

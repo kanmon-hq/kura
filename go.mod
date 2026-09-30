@@ -1,4 +1,4 @@
-module github.com/northfieldzz/kura
+module github.com/kanmon-hq/kura
 
 go 1.27.1
 

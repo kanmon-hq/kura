@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
 )
 
 // RespondJSON は JSON レスポンスを返すユーティリティ

@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
 )
 
 // UsageLogger はトークン利用量ログを非同期に収集・送出するインターフェース

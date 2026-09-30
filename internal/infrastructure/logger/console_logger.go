@@ -7,8 +7,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/domain/service"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/service"
 )
 
 // ConsoleLogger はコンソール (stdout) に非同期でトークン利用量 JSON を出力するロガー (CloudWatch Logs 向け)

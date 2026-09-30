@@ -5,10 +5,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	delivery "github.com/northfieldzz/kura/internal/delivery/http"
-	"github.com/northfieldzz/kura/internal/infrastructure/memory"
-	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
-	"github.com/northfieldzz/kura/internal/usecase"
+	delivery "github.com/kanmon-hq/kura/internal/delivery/http"
+	"github.com/kanmon-hq/kura/internal/infrastructure/memory"
+	"github.com/kanmon-hq/kura/internal/infrastructure/metrics"
+	"github.com/kanmon-hq/kura/internal/usecase"
 )
 
 func TestAuthMiddleware_GatewaySharedSecret(t *testing.T) {

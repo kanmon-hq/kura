@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
 )
 
 // CostStore はホットパス（残枠確認、アトミック加算、期間リセット）を担うインターフェース

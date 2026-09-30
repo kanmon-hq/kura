@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/domain/repository"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/repository"
 )
 
 // AuthResult は認証・クォータ検査後の結果およびレスポンスヘッダー用データ

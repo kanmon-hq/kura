@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/northfieldzz/kura/internal/infrastructure/metrics"
+	"github.com/kanmon-hq/kura/internal/infrastructure/metrics"
 )
 
 func TestMetrics_Handler(t *testing.T) {

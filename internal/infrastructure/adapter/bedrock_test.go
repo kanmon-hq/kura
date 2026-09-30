@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/domain/service"
-	"github.com/northfieldzz/kura/internal/infrastructure/adapter"
-	"github.com/northfieldzz/kura/internal/infrastructure/config"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/service"
+	"github.com/kanmon-hq/kura/internal/infrastructure/adapter"
+	"github.com/kanmon-hq/kura/internal/infrastructure/config"
 )
 
 func TestBedrockAdapter_PrepareRequest(t *testing.T) {

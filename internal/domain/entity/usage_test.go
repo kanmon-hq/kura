@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
 )
 
 func TestUsageLogEvent_JSON(t *testing.T) {

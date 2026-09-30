@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
 )
 
 // ProviderType は LLM ベンダー種別

@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"github.com/northfieldzz/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
 )
 
 // QuotaRepository は CostStore と UsageStore の双方を満たす統合リポジトリインターフェース

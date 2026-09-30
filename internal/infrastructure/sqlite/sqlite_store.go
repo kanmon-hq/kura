@@ -11,8 +11,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
-	"github.com/northfieldzz/kura/internal/domain/entity"
-	"github.com/northfieldzz/kura/internal/domain/repository"
+	"github.com/kanmon-hq/kura/internal/domain/entity"
+	"github.com/kanmon-hq/kura/internal/domain/repository"
 )
 
 // SQLiteStore は SQLite をバックエンドとする CostStore / UsageStore 実装 (単一ノード向け)

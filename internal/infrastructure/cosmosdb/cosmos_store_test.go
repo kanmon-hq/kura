@@ -3,7 +3,7 @@ package cosmosdb_test
 import (
 	"testing"
 
-	"github.com/northfieldzz/kura/internal/infrastructure/cosmosdb"
+	"github.com/kanmon-hq/kura/internal/infrastructure/cosmosdb"
 )
 
 func TestCostMicroConversion(t *testing.T) {

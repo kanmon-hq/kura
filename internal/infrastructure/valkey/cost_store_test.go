@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/northfieldzz/kura/internal/infrastructure/valkey"
+	"github.com/kanmon-hq/kura/internal/infrastructure/valkey"
 	"github.com/redis/go-redis/v9"
 )
 
