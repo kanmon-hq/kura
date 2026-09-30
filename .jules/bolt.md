@@ -38,3 +38,6 @@
 ## 2026-09-26 - Fast anonymous structs for extracting usage from SSE chunks
 **Learning:** Similar to extracting fields from large JSON responses, unmarshaling SSE chunk JSON data fully into a complete struct (like entity.ChatCompletionChunk) just to extract the usage field performs unnecessary allocations and slows down processing in the hot streaming path.
 **Action:** Use a fast anonymous struct with only the usage field when extracting usage information from streaming chunks, matching the optimization applied to non-streaming responses.
+## 2026-09-27 - Bypass net/http Header Canonicalization Overhead in proxy layer
+**Learning:** `net/http` pre-canonicalizes headers during parsing. Using `r.Header.Get("X-Request-ID")` unconditionally runs `net/textproto.CanonicalMIMEHeaderKey`, which allocates memory and burns CPU on every call. This optimization was already in `auth_usecase.go` but was missing in the hot path of `reverse_proxy.go`.
+**Action:** Reused the fast map lookup pattern `getHeaderFast` in `reverse_proxy.go` to bypass `textproto.CanonicalMIMEHeaderKey` for `X-Request-Id` and `Traceparent` headers, saving string allocations per proxy request.

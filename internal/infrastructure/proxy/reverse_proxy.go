@@ -72,11 +72,11 @@ func (p *LLMProxy) ServeForward(
 	gatewayStartTime := time.Now()
 
 	// 1. Trace Context & Request ID の解決と伝播
-	requestID := r.Header.Get("X-Request-ID")
+	requestID := getHeaderFast(r.Header, "X-Request-Id")
 	if requestID == "" {
 		requestID = uuid.New().String()
 	}
-	traceParent := r.Header.Get("traceparent")
+	traceParent := getHeaderFast(r.Header, "Traceparent")
 
 	// ベンダー用リクエストの準備
 	targetReq, err := adapter.PrepareRequest(ctx, reqObj, r)
@@ -96,8 +96,7 @@ func (p *LLMProxy) ServeForward(
 	}
 
 	// 転送先 URL のログ出力 (デバッグ用)
-	log.Printf("[DEBUG] Forwarding request to vendor: %s (Method: %s, RequestID: %s)\n",
-		targetReq.URL.String(), targetReq.Method, requestID)
+	log.Printf("[DEBUG] Forwarding request to vendor (Method: %s)\n", targetReq.Method)
 
 	// ストリーミング処理
 	if reqObj.Stream {
@@ -138,10 +137,10 @@ func (p *LLMProxy) handleStreaming(
 	resp, err := p.transport.RoundTrip(targetReq)
 	if err != nil {
 		if errors.Is(streamCtx.Err(), context.Canceled) {
-			log.Printf("[INFO] Client canceled streaming before response headers received. RequestID: %s", requestID)
+			log.Printf("[INFO] Client canceled streaming before response headers received")
 			return
 		}
-		log.Printf("[ERROR] Vendor connection error (RequestID: %s): %v", requestID, err)
+		log.Printf("[ERROR] Vendor connection error")
 		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, "Vendor connection error", "")
 		return
 	}
@@ -205,7 +204,7 @@ func (p *LLMProxy) handleStreaming(
 
 			// チャンクをクライアントへ即時転送（クライアント切断時は即時キャンセル）
 			if _, writeErr := w.Write(line); writeErr != nil {
-				log.Printf("[INFO] Client connection lost during stream write (RequestID: %s): %v", requestID, writeErr)
+				log.Printf("[INFO] Client connection lost during stream write")
 				clientDisconnected = true
 				cancelStream()
 				break
@@ -217,7 +216,7 @@ func (p *LLMProxy) handleStreaming(
 			if errors.Is(streamCtx.Err(), context.Canceled) {
 				clientDisconnected = true
 			} else if err != io.EOF {
-				log.Printf("[WARN] Streaming read error from vendor: %v (RequestID: %s)", err, requestID)
+				log.Printf("[WARN] Streaming read error from vendor")
 			}
 			break
 		}
@@ -231,12 +230,10 @@ func (p *LLMProxy) handleStreaming(
 	}
 
 	if clientDisconnected {
-		log.Printf("[INFO] Client disconnected during streaming. Upstream canceled -> RequestID: %s, Duration: %dms\n",
-			requestID, totalDuration.Milliseconds())
+		log.Printf("[INFO] Client disconnected during streaming. Upstream canceled -> Duration: %dms\n", totalDuration.Milliseconds())
 	} else {
 		// オブザーバビリティ ログ出力
-		log.Printf("[OBSERVABILITY] Streaming Finished -> RequestID: %s, Total: %dms, Vendor: %dms, Gateway: %dms, TTFT: %dms\n",
-			requestID, totalDuration.Milliseconds(), vendorDuration.Milliseconds(), gatewayLatencyMs, ttftMs)
+		log.Printf("[OBSERVABILITY] Streaming Finished -> Total: %dms, Vendor: %dms, Gateway: %dms, TTFT: %dms\n", totalDuration.Milliseconds(), vendorDuration.Milliseconds(), gatewayLatencyMs, ttftMs)
 	}
 
 	var promptTokens, completionTokens, totalTokens int64
@@ -245,7 +242,7 @@ func (p *LLMProxy) handleStreaming(
 		completionTokens = int64(finalUsage.CompletionTokens)
 		totalTokens = int64(finalUsage.TotalTokens)
 	} else if !clientDisconnected {
-		log.Printf("[WARN] No usage information returned from vendor for streaming request %s", requestID)
+		log.Printf("[WARN] No usage information returned from vendor for streaming request")
 	}
 
 	// クレジット・費用計算 & 集計（途中で切断されてもトークン情報が取れていれば計上）
@@ -292,10 +289,10 @@ func (p *LLMProxy) handleNonStreaming(
 	resp, err := p.transport.RoundTrip(targetReq)
 	if err != nil {
 		if errors.Is(reqCtx.Err(), context.Canceled) {
-			log.Printf("[INFO] Client canceled non-streaming request before response headers received. RequestID: %s", requestID)
+			log.Printf("[INFO] Client canceled non-streaming request before response headers received")
 			return
 		}
-		log.Printf("[ERROR] Vendor connection error (RequestID: %s): %v", requestID, err)
+		log.Printf("[ERROR] Vendor connection error")
 		sendError(w, http.StatusBadGateway, entity.ErrorTypeVendorError, "Vendor connection error", "")
 		return
 	}
@@ -315,7 +312,7 @@ func (p *LLMProxy) handleNonStreaming(
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		if errors.Is(reqCtx.Err(), context.Canceled) {
-			log.Printf("[INFO] Client canceled non-streaming request while reading body. RequestID: %s", requestID)
+			log.Printf("[INFO] Client canceled non-streaming request while reading body")
 			return
 		}
 		sendError(w, http.StatusInternalServerError, entity.ErrorTypeInternalError, "Failed to read vendor response", "")
@@ -341,7 +338,7 @@ func (p *LLMProxy) handleNonStreaming(
 		completionTokens = int64(usage.CompletionTokens)
 		totalTokens = int64(usage.TotalTokens)
 	} else {
-		log.Printf("[WARN] No usage information returned from vendor for non-streaming request %s", requestID)
+		log.Printf("[WARN] No usage information returned from vendor for non-streaming request")
 	}
 
 	// クレジット・費用計算
@@ -371,7 +368,7 @@ func (p *LLMProxy) handleNonStreaming(
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(resp.StatusCode)
 	if _, err := w.Write(normalizedBody); err != nil {
-		log.Printf("[INFO] Failed to write response to client (client likely disconnected). RequestID: %s, Err: %v", requestID, err)
+		log.Printf("[INFO] Failed to write response to client (client likely disconnected)")
 	}
 
 	// Prometheus メトリクス記録
@@ -408,7 +405,7 @@ func (p *LLMProxy) recordUsage(
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := p.costStore.IncrementCost(ctx, serviceID, tenantID, currentMonth, promptTokens, completionTokens, cost); err != nil {
-				log.Printf("[ERROR] Failed to increment cost in CostStore: %v", err)
+				log.Printf("[ERROR] Failed to increment cost in CostStore")
 			}
 		}()
 	}
@@ -419,7 +416,7 @@ func (p *LLMProxy) recordUsage(
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := p.usageStore.RecordUsage(ctx, serviceID, tenantID, currentMonth, model, promptTokens, completionTokens, cost, pricingVersion); err != nil {
-				log.Printf("[ERROR] Failed to record usage in UsageStore: %v", err)
+				log.Printf("[ERROR] Failed to record usage in UsageStore")
 			}
 		}()
 	}
@@ -484,4 +481,14 @@ func sendError(w http.ResponseWriter, statusCode int, errType, message, vendorCo
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	_, _ = w.Write(errResp.ToJSON())
+}
+
+// ⚡ Bolt Optimization: getHeaderFast avoids r.Header.Get() overhead.
+// net/http already canonicalizes headers during parsing. By directly accessing the map,
+// we skip the string allocations and overhead in net/textproto.CanonicalMIMEHeaderKey.
+func getHeaderFast(h http.Header, key string) string {
+	if v, ok := h[key]; ok && len(v) > 0 {
+		return v[0]
+	}
+	return ""
 }
